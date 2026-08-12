@@ -117,7 +117,12 @@ export interface TransactionListParams {
 
 ```ts
 export class ApiError extends Error {
-  constructor(public status: number, public title: string, public detail?: string) { super(title); }
+  constructor(
+    public status: number,
+    public title: string,
+    public detail?: string,
+    public errors?: Record<string, string[]>,   // ValidationProblemDetails field map (camelCased keys)
+  ) { super(title); }
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T>
@@ -127,8 +132,8 @@ export async function apiFetchVoid(path: string, init?: RequestInit): Promise<vo
 Behavior:
 - Prefix every path with `/api` is NOT done here — callers pass full paths (`/api/transactions`); the module stays a dumb transport.
 - `ok` → parse JSON (`apiFetch`) or return (`apiFetchVoid`).
-- Non-`ok` with `content-type` containing `application/problem+json` → throw `ApiError(status, body.title ?? 'Request failed', body.detail)`.
-- Non-`ok` otherwise → throw `ApiError(status, 'Request failed')`.
+- Non-`ok` with `content-type` containing `application/problem+json` → throw `ApiError(status, body.title ?? 'Request failed', body.detail, body.errors)` — `body.errors` is present on `[ApiController]` `ValidationProblemDetails` responses and carries per-field messages for form display.
+- Non-`ok` otherwise → throw `ApiError(status, 'Request failed')` (this covers 413, which Kestrel emits without a problem+json body).
 - Network failure → the native `TypeError` propagates; `AbortError` propagates untouched (UploadPage handles it specifically).
 - JSON bodies: callers pass `body: JSON.stringify(...)`; `apiFetch` sets `content-type: application/json` only when `init.body` is a string (never for `FormData`, so the browser sets the multipart boundary).
 
@@ -168,17 +173,25 @@ export function signedTotal(row: SpendingRow): number
 // + when direction matches the class's natural direction (Credit↔income, Debit↔expense), − otherwise.
 // Refund (Credit + Expense kind) → negative expense. Salary reversal (Debit + Income kind) → negative income.
 
+// Precision: all accumulation inside this module happens in integer paise
+// (Math.round(total * 100)); rupee numbers are produced only at the output
+// boundary. Float summation drift never reaches chart values.
+
 export interface PeriodFlow { periodStart: string; income: number; expense: number; }
 export function incomeExpenseByPeriod(rows: SpendingRow[]): PeriodFlow[]     // sorted by periodStart
 
 export interface CategorySlice { key: string; name: string; total: number; } // key = categoryId ?? 'uncategorized'
-export function expenseByCategory(rows: SpendingRow[]): CategorySlice[]
-// expense-class rows only, net per category over the whole range, sorted desc; slices with total <= 0 dropped
+export function expenseByCategory(rows: SpendingRow[]): { slices: CategorySlice[]; refundOnly: CategorySlice[] }
+// expense-class rows only, net per category over the whole range, sorted desc.
+// slices = net > 0 (pie input); refundOnly = net <= 0, surfaced as a footnote
+// line under the pie ("Refunds exceeded spending: …") instead of being silently dropped.
 
 export interface StackedPeriod { periodStart: string; [seriesKey: string]: string | number; }
 export function expenseStacks(rows: SpendingRow[], topN: number): { periods: StackedPeriod[]; seriesKeys: string[] }
-// expense-class rows, net per (period, category); categories ranked by range total;
-// ranks > topN collapse into 'other'; 'uncategorized' never collapses; negative period nets clamp to 0
+// expense-class rows, net per (period, category); categories ranked by |range net|;
+// ranks > topN collapse into 'other'; 'uncategorized' never collapses.
+// Negative period nets are PRESERVED (not clamped) — SpendingBarChart renders them
+// below the zero baseline via Recharts stackOffset="sign". topN = 6 in the app.
 // seriesKeys ordered: top categories desc, then 'other', then 'uncategorized'
 ```
 
@@ -228,9 +241,13 @@ Mapping table (status + exact backend titles; first match wins):
 
 | Path | Page | URL state |
 | --- | --- | --- |
-| `/` | DashboardPage | `granularity` (`week`\|`month`, default `month`), `from`, `to` (default: server defaults, i.e. params omitted) |
+| `/` | DashboardPage | `granularity` (`week`\|`month`, default `month`), `from`, `to` (default: server defaults, i.e. params omitted; custom range capped at 24 months) |
 | `/transactions` | TransactionsPage | `from`, `to`, `direction`, `categoryId`, `uncategorized`, `origin`, `sourceFormat`, `page` |
+| `/transactions/new` | ManualTransactionPage | none (Back preserves the list's search params via location state / history back) |
+| `/transactions/:id` | TransactionDetailPage | none (same back behavior) |
 | `/upload` | UploadPage | none |
+
+Detail and create are routes, not modals — explicit links/buttons navigate; keyboard and mobile back behavior come free from the router.
 
 `main.tsx` uses `createBrowserRouter` with `App` as the layout route (header nav + `<Outlet/>`). Unknown paths render a link back to `/`. The server's SPA fallback makes all routes refresh-safe.
 
@@ -239,8 +256,9 @@ Mapping table (status + exact backend titles; first match wins):
 | Component | Props | State owned |
 | --- | --- | --- |
 | `CategorySelect` | `categories: Category[]; value: string \| null; disabled?: boolean; onChange(id: string \| null): void` | none (controlled) |
-| `TransactionsTable` | `items: TransactionSummary[]; categories: Category[]; onCategoryChange(row, id): Promise<void>; onRowClick?(row): void; footer?: ReactNode` | per-row `pendingCategoryEdit` id while a PUT is in flight |
-| `ManualTransactionForm` | `categories: Category[]; onCreated(t: TransactionDetail): void; onCancel(): void` | form fields, submit state, field errors |
+| `TransactionsTable` | `items: TransactionSummary[]; categories: Category[]; onCategoryChange(row, id): Promise<void>; footer?: ReactNode` — each row includes a "Details" link to `/transactions/:id`; renders as stacked cards below 768 px | per-row `pendingCategoryEdit` id while a PUT is in flight |
+| `ImportResultTable` | `transactions: SavedTransaction[]` — dedicated shape for upload results (date, description, signed amount, source format); no category editing | none |
+| `ManualTransactionForm` | `categories: Category[]; onCreated(t): void; onCancel(): void` — hosted by the `/transactions/new` route | form fields, submit state, field errors from `ApiError.errors` |
 | `RangePicker` | `granularity; from; to; onChange({granularity, from, to})` | none (controlled from URL) |
 | `SpendingBarChart` | `periods: StackedPeriod[]; seriesKeys: string[]; granularity` | none |
 | `IncomeExpenseChart` | `data: PeriodFlow[]; granularity` | none |
@@ -263,17 +281,20 @@ idle ──submit──▶ uploading ──2xx──▶ success(ImportResult)
   └── new file chosen / retry ◀── any terminal state
 ```
 
-- `uploading`: form disabled, `Spinner startedAt` set, Cancel button wired to `AbortController.abort()`.
-- `success`: `isDuplicate` → info banner "Already imported on {formatDate(importedAt)} — showing existing transactions." Rows shown in `TransactionsTable` (category editing live; `SavedTransaction` maps into `TransactionSummary` shape with `origin: 'Imported'`, `hasLines: false`).
+- `uploading`: form disabled, `Spinner startedAt` set, Cancel button wired to `AbortController.abort()`. A `beforeunload` handler plus a router blocker guard navigation: confirmed departure aborts the request ("processing cannot be resumed").
+- `success`: `isDuplicate` → info banner "Already imported on {formatDate(importedAt)} — showing existing transactions." Rows shown in a dedicated `ImportResultTable` (date, description, signed amount, source format) — NOT `TransactionsTable`; the shapes differ (`SavedTransaction` has no `origin`/`hasLines`) and are not adapted into one another.
+- File pre-checks before any request: extension/MIME `application/pdf` and size ≤ 25 MB, with local error messages.
 - No fetch timeout — extraction legitimately runs minutes.
 
 ### TransactionsPage
 
-- On mount and whenever search params change: `Promise.all([getCategories(), listTransactions(params)])` → render. Categories resolve instantly after first load (module cache).
-- Filter widgets write to `useSearchParams` (delete keys for empty values, reset `page`); they never hold their own value state. Category filter encodes Uncategorized as `uncategorized=true` (and removes `categoryId` — the pair is mutually exclusive server-side).
-- Inline category change: optimistic disable of that row's select → `updateTransaction(id, writeFromRow(row, newCategoryId))` → replace row from response; on error restore previous value and show error banner. `writeFromRow` copies date/description/direction/amount/labels/reference/receiptUrl unchanged.
+- On mount and whenever search params change: `Promise.all([getCategories(), listTransactions(params)])` → render. Categories resolve instantly after first load (module cache). Each list fetch carries an `AbortController` aborted on param change/unmount, so stale responses never render.
+- States: loading skeleton; "no transactions yet" empty state (both CTAs) vs "no matches — clear filters"; inline retry panel on `ApiError`.
+- Filter widgets write to `useSearchParams` (delete keys for empty values, reset `page`); they never hold their own value state. Category filter encodes Uncategorized as `uncategorized=true` (and removes `categoryId` — the pair is mutually exclusive server-side). At 375 px the filters collapse into a disclosure showing the active-filter count; the table renders as stacked cards.
+- Inline category change: disable that row's select → `updateTransaction(id, writeFromRow(row, newCategoryId))` → **on 200 refetch the active list query** (respects filters/sort/pagination — the row may legitimately leave a filtered view); on error restore the previous value and show a banner (field errors from `ApiError.errors` if present). `writeFromRow` copies date/description/direction/amount/labels/reference/receiptUrl unchanged.
 - Pagination: Prev/Next + "Page N of ⌈totalCount / pageSize⌉".
-- Row click loads `getTransaction(id)` and shows detail (origin, source format, balance, lines table, tag chips with state/source badges) in an expandable row.
+- A "Details" link per row navigates to `/transactions/:id` (origin, source format, balance, lines table, tag chips with state/source badges). "Add transaction" navigates to `/transactions/new`; on 201 it navigates back and the list refetches.
+- `/transactions/new` form: client-side mirrors of the DataAnnotations rules; on 400, `ApiError.errors` maps to per-field messages plus a summary, and focus moves to the first invalid field.
 
 ### DashboardPage
 
@@ -282,26 +303,29 @@ idle ──submit──▶ uploading ──2xx──▶ success(ImportResult)
 
 ## Styling
 
-Single `styles/global.css`: custom properties for palette (surface, text, accent, semantic banner colors, `--chart-*`), spacing scale, radius; system font stack; light/dark via `prefers-color-scheme` swapping the property values only. BEM-ish class names (`.tx-table__row`, `.banner--error`). No CSS modules, no framework.
+Single `styles/global.css`, written in step 2 (tokens before pages): custom properties for surface, text, borders, accent, banner semantics, focus ring, spacing scale, radius, and `--chart-1..8` + `--chart-neutral`; system font stack; light/dark via `prefers-color-scheme` swapping property values only, with `color-scheme: light dark` on `:root` so native controls follow. Contrast targets: text ≥ 4.5:1, chart series ≥ 3:1 against surface, both modes. `prefers-reduced-motion` disables transitions and chart animations. BEM-ish class names (`.tx-table__row`, `.banner--error`). No CSS modules, no framework.
+
+Accessibility invariants enforced by components: semantic landmarks and one `h1` per route; labels via `<label for>` and errors via `aria-describedby`; amounts always carry an explicit sign (never color-only); `:focus-visible` ring everywhere; each chart renders a visually-hidden expandable data table with the same signed values; `StatusBanner` doubles as a polite `aria-live` region.
 
 ## Vitest plan (`environment: 'node'`, `src/lib/**/*.test.ts`)
 
 | Module | Cases |
 | --- | --- |
-| `aggregate` | classify: kind wins over direction; null kind falls back to direction. signedTotal: refund (Credit+Expense) negative; reversal (Debit+Income) negative. incomeExpenseByPeriod: mixed periods sorted, refund reduces expense not income. expenseByCategory: net ≤ 0 dropped; uncategorized keeps own slice. expenseStacks: topN collapse into `other`; `uncategorized` never collapses; negative period net clamps to 0 while range ranking uses true nets. |
-| `dates` | month arithmetic across year boundary; presets against a fixed "today" (inject via parameter default override). |
-| `format` | INR lakh grouping `₹1,23,456.00`; week/month period labels. |
-| `errors` | every table row above; unknown ApiError; non-ApiError fallback. |
+| `aggregate` | classify: kind wins over direction; null kind falls back to direction. signedTotal: refund (Credit+Expense) negative; reversal (Debit+Income) negative. incomeExpenseByPeriod: mixed periods sorted, refund reduces expense not income. expenseByCategory: net ≤ 0 lands in `refundOnly`, not `slices`; uncategorized keeps own slice. expenseStacks: top-6 collapse into `other`; `uncategorized` never collapses; **negative period nets preserved** while ranking uses \|range net\|. Paise accumulation: a drift-prone sum (e.g. many 0.1-style values) matches the exact decimal result; zero-net cancellation case. |
+| `dates` | month arithmetic across year boundary; presets against a fixed "today" (inject via parameter default override); `yyyy-MM-dd` handled as calendar components — no UTC parse shift. |
+| `format` | INR lakh grouping `₹1,23,456.00`; signed amount rendering (`− ₹…` / `+ ₹…`); week/month period labels. |
+| `errors` | every mapping row incl. 413; unknown ApiError; non-ApiError fallback. |
+| `api/client` | stubbed global `fetch`: ok → typed JSON; problem+json → ApiError(title, detail); ValidationProblemDetails → `ApiError.errors` field map; non-JSON non-ok (413) → generic ApiError with status; AbortError propagates untouched; `content-type` set only for string bodies (not FormData). |
 
 ## Implementation order
 
-1. Scaffold (`npm create vite@latest frontend -- --template react-ts`), `vite.config.ts` proxy/outDir, prune template, commit lockfile.
-2. `api/types.ts` + `api/client.ts` + endpoint modules.
-3. `lib/` modules + Vitest (no UI needed; suite green before any page).
-4. Shell + router; empty pages render.
-5. TransactionsPage (+ Table, CategorySelect, ManualTransactionForm) — proves list/PUT/POST through the proxy.
-6. UploadPage — proves the long-request and cancel paths.
-7. DashboardPage (+ RangePicker, three charts).
-8. `global.css` polish; prod build into `wwwroot`; README/DEPLOYMENT updates.
+1. Scaffold (`npm create vite@latest frontend -- --template react-ts`), `vite.config.ts` proxy/outDir, prune template, commit lockfile, pin Node 22 in `engines`.
+2. `global.css` design tokens (light/dark, `color-scheme`, focus ring, chart palette) + App shell/nav + router with empty routed pages (incl. `/transactions/new`, `/transactions/:id`).
+3. `api/types.ts` + `api/client.ts` (incl. ValidationProblemDetails parsing) + endpoint modules + client tests.
+4. `lib/` modules + Vitest (no UI needed; suite green before any page).
+5. TransactionsPage (+ Table/cards, CategorySelect, refetch-on-mutation) + ManualTransactionPage + TransactionDetailPage — proves list/PUT/POST through the proxy.
+6. UploadPage (dropzone, pre-checks, navigation guard, cancel, error map, ImportResultTable) — proves the long-request paths.
+7. DashboardPage (+ RangePicker with 24-month cap, sign-aware stacked bars, pie + refund footnote, chart data tables).
+8. Backend hardening (`UseHttpsRedirection` + `UseHsts` outside Development); prod build into `wwwroot`; README/DEPLOYMENT updates incl. the release script that asserts `wwwroot/index.html` exists.
 
 Verification for each step and the final browser checklist are in `react-frontend-ui.md`.
