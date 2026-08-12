@@ -36,7 +36,7 @@ Notes that shape the UI:
 The app stores financial data with no authentication. That is acceptable **only** when the listener is unreachable by anyone but the owner:
 
 - **Document in DEPLOYMENT.md:** bind to loopback (`localhost`) or a private/VPN interface only; never expose the port to a LAN/internet without adding authentication first. Database access stays restricted to the app identity (already documented).
-- **Small backend change (this task):** in `Program.cs`, when not Development, add `app.UseHttpsRedirection()` and `app.UseHsts()` so the whole app — not just the mutating endpoints' `Request.IsHttps` checks — refuses plaintext in production. If TLS is ever terminated by a reverse proxy, forwarded-headers configuration is required first; note this in DEPLOYMENT.md rather than pre-configuring it.
+- **Small backend changes (this task):** in `Program.cs`, when not Development, add `app.UseHttpsRedirection()` and `app.UseHsts()` so the whole app — not just the mutating endpoints' `Request.IsHttps` checks — refuses plaintext in production. If TLS is ever terminated by a reverse proxy, forwarded-headers configuration is required first; note this in DEPLOYMENT.md rather than pre-configuring it. Additionally, raise Kestrel's `MaxRequestBodySize` and `MultipartBodyLengthLimit` to `MaximumFileSizeBytes` **+ 1 MB headroom**: today the request cap equals the file cap, so a legitimate 25 MB PDF fails with 413 because multipart framing adds bytes beyond the file itself.
 
 ## Frontend
 
@@ -92,7 +92,7 @@ Charts render inside fixed-height containers with `ResponsiveContainer` width so
 2. **Netting:** signed amount = `+total` when direction matches the class's natural direction (Credit↔income, Debit↔expense), `−total` otherwise. A refund (Credit in an Expense category) reduces that category's spend; it is never income.
 3. **Income vs Expense chart:** per period, income = Σ signed income-class rows; expense = Σ signed expense-class rows.
 4. **Spending charts:** expense-class rows only, net per category per period. **Negative nets are rendered truthfully below a visible zero baseline** (Recharts `stackOffset="sign"`), not clamped — a refund-dominant period shows a negative bar segment. The chart's text-alternative table carries the same signed values.
-5. **Top N = 6** categories by absolute net over the range; the rest collapse into "Other"; Uncategorized never collapses. Pie shows net-positive slices only, with a footnote line listing any net-negative categories ("Refunds exceeded spending: X").
+5. **Top N = 6** categories by absolute net over the range; the rest collapse into "Other"; Uncategorized never collapses. Pie shows net-positive slices only; strictly net-negative categories are listed in a footnote ("Refunds exceeded spending: X"); exact-zero nets are omitted entirely so they never produce a false refund message or defeat the all-zero empty state. Series names and colors come from shared descriptors produced by the aggregation layer, so every chart shows the same label and color for the same category.
 6. All accumulation in integer paise (see Money precision).
 
 ### Chart acceptance criteria
@@ -154,7 +154,7 @@ Backend behavior already covered (44 tests green, incl. report/category/validati
 - `lib/dates` — month arithmetic across year boundary; presets against an injected fixed today; `yyyy-MM-dd` treated as calendar components (no UTC shift).
 - `lib/format` — INR lakh grouping; signed amount rendering; period labels.
 - `lib/errors` — every mapping row incl. 413; unknown ApiError; non-ApiError fallback.
-- **`api/client`** — with a stubbed global `fetch`: ok → typed JSON; problem+json → `ApiError` with title/detail; `ValidationProblemDetails` → `ApiError.errors` field map; non-JSON failure → generic `ApiError`; `AbortError` passes through untouched.
+- **`api/client`** — with a stubbed global `fetch`: ok → typed JSON; problem+json → `ApiError` with title/detail; `ValidationProblemDetails` → `ApiError.errors` with keys normalized from CLR PascalCase (`TransactionDate`) to camelCase; non-JSON failure (413) → `ApiError` with status; network `TypeError` → `ApiError(0)`; `AbortError` passes through untouched. Plus `api/categories`: a rejected fetch is not cached — retry succeeds.
 
 Component/E2E harnesses remain out of scope (single-user tool); the browser checklist and release smoke test cover integration. This is a documented tradeoff, not an omission.
 

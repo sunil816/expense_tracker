@@ -8,7 +8,7 @@ Define the module-level design of the React frontend described in `react-fronten
 
 - **No state library, no data-fetching library.** Three pages, one user, no shared mutable state beyond the category list. Each page owns its server state with `useState`/`useEffect`; the category list uses a module-level promise cache. Adding React Query or Zustand would be dead weight at this scale.
 - **URL search params are the source of truth** for transaction filters and dashboard range. Component state never duplicates them; handlers write to the URL and re-render follows.
-- **The API layer returns typed data or throws `ApiError`** — components never see `fetch`, `Response`, or ProblemDetails JSON.
+- **The API layer returns typed data, throws `ApiError`, or propagates `AbortError` on cancellation — nothing else.** Network `TypeError`s are wrapped into `ApiError(0, 'Network error')`; components never see `fetch`, `Response`, ProblemDetails JSON, or raw transport errors.
 - **All chart math is pure functions** in `lib/aggregate.ts` operating on `SpendingRow[]` → chart-ready series. Recharts components stay declarative and logic-free; the pure layer is the Vitest surface.
 - **Dates stay strings** (`yyyy-MM-dd`) end to end; conversion to `Date` happens only inside `lib/dates.ts` helpers and never leaks out.
 
@@ -202,19 +202,31 @@ export function signedTotal(row: SpendingRow): number
 export interface PeriodFlow { periodStart: string; income: number; expense: number; }
 export function incomeExpenseByPeriod(rows: SpendingRow[]): PeriodFlow[]     // sorted by periodStart
 
-export interface CategorySlice { key: string; name: string; total: number; } // key = categoryId ?? 'uncategorized'
+// One descriptor type shared by the bar and pie charts, so a category has the same
+// label and color everywhere. colorToken is a CSS custom-property name ('--chart-1'…
+// '--chart-8'), assigned by |range net| rank; 'other' and 'uncategorized' always get
+// '--chart-neutral' variants. Components resolve tokens via getComputedStyle/var() —
+// they never invent colors or re-look-up category names.
+export interface SeriesDescriptor { key: string; name: string; colorToken: string; } // key = categoryId ?? 'uncategorized' ?? 'other'
+
+export interface CategorySlice extends SeriesDescriptor { total: number; }
 export function expenseByCategory(rows: SpendingRow[]): { slices: CategorySlice[]; refundOnly: CategorySlice[] }
 // expense-class rows only, net per category over the whole range, sorted desc.
-// slices = net > 0 (pie input); refundOnly = net <= 0, surfaced as a footnote
-// line under the pie ("Refunds exceeded spending: …") instead of being silently dropped.
+// slices = net > 0 (pie input); refundOnly = strictly net < 0, surfaced as a footnote
+// line under the pie ("Refunds exceeded spending: …"). Exact-zero nets are omitted
+// entirely — the refund message would be false for them, and they must not defeat
+// the all-zero empty state.
 
 export interface StackedPeriod { periodStart: string; [seriesKey: string]: string | number; }
-export function expenseStacks(rows: SpendingRow[], topN: number): { periods: StackedPeriod[]; seriesKeys: string[] }
+export function expenseStacks(rows: SpendingRow[], topN: number): { periods: StackedPeriod[]; series: SeriesDescriptor[] }
 // expense-class rows, net per (period, category); categories ranked by |range net|;
 // ranks > topN collapse into 'other'; 'uncategorized' never collapses.
 // Negative period nets are PRESERVED (not clamped) — SpendingBarChart renders them
 // below the zero baseline via Recharts stackOffset="sign". topN = 6 in the app.
-// seriesKeys ordered: top categories desc, then 'other', then 'uncategorized'
+// series carries display name + colorToken per key (ordered: top categories desc,
+// then 'other', then 'uncategorized') so the chart renders readable legends and
+// stable colors without any category lookup of its own. Because ranking is shared,
+// expenseByCategory and expenseStacks assign identical colors to the same category.
 ```
 
 All functions sort rows internally (defensive) and never mutate inputs.
@@ -232,7 +244,9 @@ export function presetRange(p: 'thisMonth' | 'last3' | 'last6'): { from: string;
 
 ```ts
 export function formatInr(amount: number): string               // ₹1,23,456.00 (en-IN)
-export function formatDate(iso: string): string                 // 12 Aug 2026
+export function formatDate(iso: string): string                 // input yyyy-MM-dd only → 12 Aug 2026
+export function formatDateTime(isoOffset: string): string       // input DateTimeOffset string (e.g. importedAt)
+                                                                // → browser-local date+time, '12 Aug 2026, 14:05'
 export function formatPeriodLabel(g: 'week' | 'month', periodStart: string): string
 // month → 'Aug 2026'; week → 'Wk of 10 Aug'
 ```
@@ -249,15 +263,16 @@ Mapping table (status + exact backend titles; first match wins):
 | --- | --- |
 | 400 `The PDF could not be opened.` | Wrong password, or the PDF is corrupted. Check the password and retry. |
 | 400 `The uploaded file is invalid.` / `A PDF file is required.` | That file doesn't look like a supported PDF. |
+| 413 (any title — Kestrel emits no problem+json) | The file is too large for the server (25 MB limit). |
 | 422 `No supported transaction data was found.` | No transaction table was found in this document. |
 | 429 | The server is busy with another extraction. Try again in a few minutes. |
 | 503 | The PDF decryption tool is unavailable on the server. |
 | 504 | Extraction timed out — the document may be too large. |
 | 502 | The extraction service failed. Check the server logs. |
+| `ApiError` status 0 | Network problem — is the API running? |
 | any other `ApiError` | Upload failed ({title}). |
-| non-`ApiError` | Network problem — is the API running? |
 
-`AbortError` never reaches this function (handled before mapping).
+`AbortError` never reaches this function (handled before mapping); the client wraps all other non-HTTP failures as status-0 `ApiError`, so `unknown` here is defensive only.
 
 ## Routing and shell
 
@@ -282,7 +297,7 @@ Detail and create are routes, not modals — explicit links/buttons navigate; ke
 | `ImportResultTable` | `transactions: SavedTransaction[]` — dedicated shape for upload results (date, description, signed amount, source format); no category editing | none |
 | `ManualTransactionForm` | `categories: Category[]; onCreated(t): void; onCancel(): void` — hosted by the `/transactions/new` route | form fields, submit state, field errors from `ApiError.errors` |
 | `RangePicker` | `granularity; from; to; onChange({granularity, from, to})` | none (controlled from URL) |
-| `SpendingBarChart` | `periods: StackedPeriod[]; seriesKeys: string[]; granularity` | none |
+| `SpendingBarChart` | `periods: StackedPeriod[]; series: SeriesDescriptor[]; granularity` | none |
 | `IncomeExpenseChart` | `data: PeriodFlow[]; granularity` | none |
 | `CategoryPieChart` | `slices: CategorySlice[]` | none |
 | `StatusBanner` | `kind: 'info' \| 'success' \| 'error'; children; onDismiss?` | none |
@@ -290,7 +305,7 @@ Detail and create are routes, not modals — explicit links/buttons navigate; ke
 
 `CategorySelect` rendering: one `<optgroup>` per kind (Income first, matching server order), parents as plain options, children indented with `  `; first option `— Uncategorized —` maps to `null`.
 
-Chart colors: a fixed 8-color categorical palette in `global.css` custom properties (`--chart-1` … `--chart-8`), assigned to `seriesKeys` by index so a category keeps its color across all charts within a render; `uncategorized`/`other` always use `--chart-neutral` (gray). Consult the `dataviz` skill at implementation time for the palette values and tooltip/legend conventions.
+Chart colors and labels come exclusively from the `SeriesDescriptor`s produced by `lib/aggregate.ts` (see its contract): a fixed 8-color categorical palette lives in `global.css` (`--chart-1` … `--chart-8`, plus `--chart-neutral`), and the aggregate layer assigns tokens by shared rank so the same category has the same color and display name in every chart. Chart components resolve `var(colorToken)` and render `name` — they contain no category lookup or color logic. Consult the `dataviz` skill at implementation time for the palette values and tooltip/legend conventions.
 
 ## Page state machines
 
@@ -299,13 +314,13 @@ Chart colors: a fixed 8-color categorical palette in `global.css` custom propert
 ```
 idle ──submit──▶ uploading ──2xx──▶ success(ImportResult)
   ▲                 │ AbortError ──▶ cancelled (quiet info banner)
-  │                 │ ApiError/TypeError ──▶ failed(message)
+  │                 │ ApiError ──▶ failed(message)          # incl. status-0 network wrap
   └── new file chosen / retry ◀── any terminal state
 ```
 
 - `uploading`: form disabled, `Spinner startedAt` set, Cancel button wired to `AbortController.abort()`. A `beforeunload` handler plus a router blocker guard navigation: confirmed departure aborts the request ("processing cannot be resumed").
-- `success`: `isDuplicate` → info banner "Already imported on {formatDate(importedAt)} — showing existing transactions." Rows shown in a dedicated `ImportResultTable` (date, description, signed amount, source format) — NOT `TransactionsTable`; the shapes differ (`SavedTransaction` has no `origin`/`hasLines`) and are not adapted into one another.
-- File pre-checks before any request: extension/MIME `application/pdf` and size ≤ 25 MB, with local error messages.
+- `success`: `isDuplicate` → info banner "Already imported on {formatDateTime(importedAt)} — showing existing transactions." (`importedAt` is a DateTimeOffset string, not `yyyy-MM-dd` — it goes through `formatDateTime`, displayed browser-local.) Rows shown in a dedicated `ImportResultTable` (date, description, signed amount, source format) — NOT `TransactionsTable`; the shapes differ (`SavedTransaction` has no `origin`/`hasLines`) and are not adapted into one another.
+- File pre-checks before any request: extension/MIME `application/pdf` and size ≤ 25 MB, with local error messages. A full-size 25 MB file must still upload successfully: the backend raises Kestrel's `MaxRequestBodySize` and `MultipartBodyLengthLimit` to `MaximumFileSizeBytes` **plus 1 MB of multipart-framing headroom** (see the plan's backend-hardening step) so the request limit is never the file limit. 413 remains mapped for files that bypass the pre-check.
 - No fetch timeout — extraction legitimately runs minutes.
 
 ### TransactionsPage
@@ -320,8 +335,8 @@ idle ──submit──▶ uploading ──2xx──▶ success(ImportResult)
 
 ### DashboardPage
 
-- Whenever `granularity`/`from`/`to` params change: `getSpendingReport(...)` → run the three aggregate functions → render charts. `report.from`/`report.to` echo the resolved range back into the picker display.
-- Empty rows → friendly empty state ("No transactions in this range — upload a statement").
+- Whenever `granularity`/`from`/`to` params change: `getSpendingReport(..., signal)` → run the three aggregate functions → render charts. Same staleness discipline as Transactions: abort the in-flight request on param change/unmount and gate rendering on a request-generation check. `report.from`/`report.to` echo the resolved range back into the picker display.
+- States: loading skeletons; empty rows → friendly empty state ("No transactions in this range — upload a statement"); `ApiError` (incl. status-0 network) → inline retry panel, same treatment as Transactions.
 
 ## Styling
 
@@ -329,15 +344,16 @@ Single `styles/global.css`, written in step 2 (tokens before pages): custom prop
 
 Accessibility invariants enforced by components: semantic landmarks and one `h1` per route; labels via `<label for>` and errors via `aria-describedby`; amounts always carry an explicit sign (never color-only); `:focus-visible` ring everywhere; each chart renders a visually-hidden expandable data table with the same signed values; `StatusBanner` doubles as a polite `aria-live` region.
 
-## Vitest plan (`environment: 'node'`, `src/lib/**/*.test.ts`)
+## Vitest plan (`environment: 'node'`, `src/**/*.test.ts` — covers `lib/` and `api/`)
 
 | Module | Cases |
 | --- | --- |
-| `aggregate` | classify: kind wins over direction; null kind falls back to direction. signedTotal: refund (Credit+Expense) negative; reversal (Debit+Income) negative. incomeExpenseByPeriod: mixed periods sorted, refund reduces expense not income. expenseByCategory: net ≤ 0 lands in `refundOnly`, not `slices`; uncategorized keeps own slice. expenseStacks: top-6 collapse into `other`; `uncategorized` never collapses; **negative period nets preserved** while ranking uses \|range net\|. Paise accumulation: a drift-prone sum (e.g. many 0.1-style values) matches the exact decimal result; zero-net cancellation case. |
+| `aggregate` | classify: kind wins over direction; null kind falls back to direction. signedTotal: refund (Credit+Expense) negative; reversal (Debit+Income) negative. incomeExpenseByPeriod: mixed periods sorted, refund reduces expense not income. expenseByCategory: net < 0 lands in `refundOnly`; **exact-zero nets omitted from both lists**; uncategorized keeps own slice. expenseStacks: top-6 collapse into `other`; `uncategorized` never collapses; **negative period nets preserved** while ranking uses \|range net\|; descriptors carry name + colorToken, identical for the same category across `expenseStacks` and `expenseByCategory`; `other`/`uncategorized` get neutral tokens. Paise accumulation: a drift-prone sum (e.g. many 0.1-style values) matches the exact decimal result; zero-net cancellation case. |
 | `dates` | month arithmetic across year boundary; presets against a fixed "today" (inject via parameter default override); `yyyy-MM-dd` handled as calendar components — no UTC parse shift. |
-| `format` | INR lakh grouping `₹1,23,456.00`; signed amount rendering (`− ₹…` / `+ ₹…`); week/month period labels. |
-| `errors` | every mapping row incl. 413; unknown ApiError; non-ApiError fallback. |
-| `api/client` | stubbed global `fetch`: ok → typed JSON; problem+json → ApiError(title, detail); ValidationProblemDetails → `ApiError.errors` field map; non-JSON non-ok (413) → generic ApiError with status; AbortError propagates untouched; `content-type` set only for string bodies (not FormData). |
+| `format` | INR lakh grouping `₹1,23,456.00`; signed amount rendering (`− ₹…` / `+ ₹…`); week/month period labels; `formatDateTime` renders an offset timestamp browser-local. |
+| `errors` | every mapping row incl. 413 and status-0 network; unknown-ApiError fallback. |
+| `api/client` | stubbed global `fetch`: ok → typed JSON; problem+json → ApiError(title, detail); ValidationProblemDetails → `ApiError.errors` with **keys normalized from CLR PascalCase to camelCase**; non-JSON non-ok (413) → ApiError with status; network `TypeError` → `ApiError(0, 'Network error')`; AbortError propagates untouched; `content-type` set only for string bodies (not FormData). |
+| `api/categories` | rejected fetch is not cached: first call rejects, second call retries and resolves; concurrent callers share one in-flight request. |
 
 ## Implementation order
 
@@ -348,6 +364,6 @@ Accessibility invariants enforced by components: semantic landmarks and one `h1`
 5. TransactionsPage (+ Table/cards, CategorySelect, refetch-on-mutation) + ManualTransactionPage + TransactionDetailPage — proves list/PUT/POST through the proxy.
 6. UploadPage (dropzone, pre-checks, navigation guard, cancel, error map, ImportResultTable) — proves the long-request paths.
 7. DashboardPage (+ RangePicker with 24-month cap, sign-aware stacked bars, pie + refund footnote, chart data tables).
-8. Backend hardening (`UseHttpsRedirection` + `UseHsts` outside Development); prod build into `wwwroot`; README/DEPLOYMENT updates incl. the release script that asserts `wwwroot/index.html` exists.
+8. Backend hardening (`UseHttpsRedirection` + `UseHsts` outside Development; request-size limits raised to `MaximumFileSizeBytes` + 1 MB multipart headroom); prod build into `wwwroot`; README/DEPLOYMENT updates incl. the release script that asserts `wwwroot/index.html` exists.
 
 Verification for each step and the final browser checklist are in `react-frontend-ui.md`.
