@@ -6,9 +6,7 @@ namespace ExpenseTracker.Controllers;
 [ApiController]
 [Route("api/document-extractions")]
 public sealed class DocumentExtractionsController(
-    IPdfPreparationService pdfPreparationService,
-    IDocumentExtractionProvider extractionProvider,
-    SemaphoreSlim extractionSlots,
+    DocumentExtractionService documentExtractionService,
     ILogger<DocumentExtractionsController> logger) : ControllerBase
 {
     [HttpPost]
@@ -25,16 +23,10 @@ public sealed class DocumentExtractionsController(
             return Problem(statusCode: StatusCodes.Status400BadRequest, title: "A PDF file is required.");
         }
 
-        if (!await extractionSlots.WaitAsync(TimeSpan.Zero, cancellationToken))
-        {
-            return Problem(statusCode: StatusCodes.Status429TooManyRequests, title: "Extraction capacity is currently busy.");
-        }
-
         try
         {
-            await using var preparedPdf = await pdfPreparationService.PrepareAsync(file, password, cancellationToken);
-            var result = await extractionProvider.ExtractAsync(preparedPdf.Path, cancellationToken);
-            return File(result.Body, result.ContentType);
+            await using var input = file.OpenReadStream();
+            return Ok(await documentExtractionService.ExtractAndImportAsync(input, password, cancellationToken));
         }
         catch (DocumentExtractionException exception)
         {
@@ -42,17 +34,15 @@ public sealed class DocumentExtractionsController(
             return exception.Error switch
             {
                 DocumentExtractionError.InvalidFile => Problem(statusCode: 400, title: "The uploaded file is invalid."),
+                DocumentExtractionError.NoSupportedTransactionData => Problem(statusCode: 422, title: "No supported transaction data was found."),
                 DocumentExtractionError.InvalidPasswordOrPdf => Problem(statusCode: 400, title: "The PDF could not be opened."),
+                DocumentExtractionError.DecryptionUnavailable => Problem(statusCode: 503, title: "The PDF decryption tool is unavailable."),
                 DocumentExtractionError.ProviderResponseTooLarge => Problem(statusCode: 502, title: "The extraction result is too large."),
                 DocumentExtractionError.DeadlineExceeded => Problem(statusCode: 504, title: "Document extraction timed out."),
                 DocumentExtractionError.Cancelled => Problem(statusCode: 499, title: "The request was cancelled."),
                 DocumentExtractionError.Busy => Problem(statusCode: 429, title: "Extraction capacity is currently busy."),
                 _ => Problem(statusCode: 502, title: "Document extraction failed.")
             };
-        }
-        finally
-        {
-            extractionSlots.Release();
         }
     }
 }

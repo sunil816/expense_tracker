@@ -1,21 +1,25 @@
-using Microsoft.AspNetCore.Http;
-
 namespace ExpenseTracker.Services;
 
 public interface IPdfPreparationService
 {
-    Task<PreparedPdf> PrepareAsync(IFormFile file, string? password, CancellationToken cancellationToken);
+    Task<PreparedPdf> PrepareAsync(Stream input, string? password, CancellationToken cancellationToken);
 }
 
 public sealed class PreparedPdf : IAsyncDisposable
 {
-    public PreparedPdf(string path, string stagingDirectory)
+    public PreparedPdf(
+        string path,
+        string stagingDirectory,
+        IReadOnlyDictionary<int, IReadOnlyList<string>> hyperlinksByPage)
     {
         Path = path;
         StagingDirectory = stagingDirectory;
+        HyperlinksByPage = hyperlinksByPage;
     }
 
     public string Path { get; }
+
+    public IReadOnlyDictionary<int, IReadOnlyList<string>> HyperlinksByPage { get; }
 
     private string StagingDirectory { get; }
 

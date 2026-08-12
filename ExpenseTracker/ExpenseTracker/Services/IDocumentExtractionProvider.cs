@@ -10,7 +10,9 @@ public sealed record ExtractionResult(byte[] Body, string ContentType);
 public enum DocumentExtractionError
 {
     InvalidFile,
+    NoSupportedTransactionData,
     InvalidPasswordOrPdf,
+    DecryptionUnavailable,
     ProviderUnavailable,
     ProviderFailed,
     ProviderResponseTooLarge,

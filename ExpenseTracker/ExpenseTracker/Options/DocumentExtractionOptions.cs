@@ -1,5 +1,8 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Configuration;
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ExpenseTracker.Options;
 
@@ -66,10 +69,66 @@ public sealed class DocumentExtractionOptions : IValidatableObject
         {
             yield return new ValidationResult("MaximumResponseSizeBytes must be at least MaximumFileSizeBytes.", [nameof(MaximumResponseSizeBytes)]);
         }
-
-        if (ConversionOptions.ValueKind is not JsonValueKind.Object and not JsonValueKind.Null and not JsonValueKind.Undefined)
-        {
-            yield return new ValidationResult("ConversionOptions must be a JSON object or null.", [nameof(ConversionOptions)]);
-        }
     }
+
+    public static JsonElement ReadConversionOptions(IConfigurationSection section)
+    {
+        var node = ReadNode(section);
+        return JsonDocument.Parse(node?.ToJsonString() ?? "{}").RootElement.Clone();
+    }
+
+    private static JsonNode? ReadNode(IConfigurationSection section)
+        {
+            var children = section.GetChildren().ToArray();
+            if (children.Length == 0)
+            {
+                return ParseScalar(section.Value);
+            }
+
+            var isArray = children.All(child => int.TryParse(child.Key, NumberStyles.None, CultureInfo.InvariantCulture, out _));
+            if (isArray)
+            {
+                var array = new JsonArray();
+                foreach (var child in children.OrderBy(child => int.Parse(child.Key, CultureInfo.InvariantCulture)))
+                {
+                    array.Add(ReadNode(child));
+                }
+
+                return array;
+            }
+
+            var objectNode = new JsonObject();
+            foreach (var child in children)
+            {
+                objectNode[child.Key] = ReadNode(child);
+            }
+
+            return objectNode;
+        }
+
+    private static JsonNode? ParseScalar(string? value)
+        {
+            if (value is null)
+            {
+                return null;
+            }
+
+            if (bool.TryParse(value, out var boolean))
+            {
+                return JsonValue.Create(boolean);
+            }
+
+            if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer))
+            {
+                return JsonValue.Create(integer);
+            }
+
+            if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number))
+            {
+                return JsonValue.Create(number);
+            }
+
+            return JsonValue.Create(value);
+        }
+
 }

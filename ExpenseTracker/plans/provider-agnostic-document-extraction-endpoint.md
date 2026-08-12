@@ -2,7 +2,7 @@
 
 ## Objective
 
-Add one public ASP.NET Core endpoint that accepts a PDF and an optional password, creates an unprotected request-scoped PDF, sends it to the configured extraction provider through Docling Serve's asynchronous job API, polls for completion, and returns the completed provider JSON unchanged.
+Add one public ASP.NET Core endpoint that accepts a PDF and an optional password, creates an unprotected request-scoped PDF, sends it to the configured extraction provider through Docling Serve's asynchronous job API, polls for completion, and returns supported transaction tables as header/value objects.
 
 The public API uses document-extraction terminology rather than Docling terminology so the upstream provider can be replaced later.
 
@@ -10,7 +10,7 @@ The public API uses document-extraction terminology rather than Docling terminol
 
 - Public endpoint: `POST /api/document-extractions` using `multipart/form-data` fields `file` (required) and `password` (optional).
 - The caller supplies only the file and optional password. All provider URL, transport, timeout, polling, multipart, and conversion settings come from `appsettings*.json`.
-- Successful provider output is returned as raw `application/json`; it is not deserialized, normalized, wrapped, or mapped into transaction DTOs.
+- Successful provider output is normalized into a JSON array of transaction rows. Each object preserves the detected source headers as property names and represents blank cells as `null`.
 - Local and provider failures are returned as API-owned `ProblemDetails`. Raw provider error bodies, passwords, temporary paths, stack traces, and document-derived personal data are not exposed.
 - Use ASP.NET Core and .NET libraries including `IHttpClientFactory`, `IOptions`, multipart abstractions, `System.Text.Json`, `System.Net.Http`, and `ProblemDetails`.
 - Keep the existing `PdfSharpCore` 1.3.67 dependency only for opening protected PDFs and creating unprotected copies. Do not add Newtonsoft.Json, a paid SDK, or another JSON/PDF package.
@@ -18,7 +18,7 @@ The public API uses document-extraction terminology rather than Docling terminol
 - Response-size enforcement: the provider reads the successful upstream response into a bounded buffer, checked against the configured maximum response size, before any bytes or headers are sent to the client. If the upstream body exceeds the limit, no response is ever committed with a `200 OK`; the API returns a safe `ProblemDetails` instead. The API never streams a live pass-through of the upstream connection and never sends a partial body.
 - Transient polling resilience: a transport-level failure on a single status or result request (timeout, connection reset, transient 5xx) is retried using a configured bounded backoff policy instead of failing the whole job. Only an explicit terminal `task_status: failure`, a malformed task payload, or deadline expiry stops the poll loop immediately.
 - Transport requirement: the endpoint only accepts requests over HTTPS. Plaintext HTTP requests are rejected outright rather than redirected, because a redirect cannot undo a password already transmitted in cleartext.
-- This slice excludes transaction normalization, persistence, OCR policy enforcement, authentication, rate limiting, UI, custom Python code, and container management.
+- This slice excludes persistence, account-balance validation, OCR policy enforcement, authentication, rate limiting, UI, custom Python code, and container management.
 
 ## Request Flow
 
@@ -55,7 +55,8 @@ sequenceDiagram
         Provider->>Provider: Buffer response up to configured max size
         alt Within size limit
             Provider-->>Controller: Buffered response body and media type
-            Controller-->>Client: Return buffered unchanged JSON response
+            Controller->>Controller: Normalize supported transaction tables
+            Controller-->>Client: Return transaction header/value objects
         else Over size limit
             Provider-->>Controller: Oversized-response outcome
             Controller-->>Client: Safe API-owned ProblemDetails
@@ -100,14 +101,14 @@ The controller does not know provider endpoints or conversion settings. It calls
 4. Build `MultipartFormDataContent` from `DocumentExtractionOptions`, submitting the staged PDF to the configured async route. Parse only the small task submission and status envelopes with `System.Text.Json` to obtain and inspect `task_id` and `task_status`.
 5. Poll until success or failure, using the configured polling interval and a linked cancellation token bounded by the configured overall deadline and `HttpContext.RequestAborted`.
 6. Distinguish terminal outcomes from transient ones while polling: an explicit `task_status: failure`, a malformed task payload, or deadline expiry stop the poll loop immediately and map to a safe API error. A transport-level failure on a single status or result request (timeout, connection reset, transient 5xx) is retried using the configured backoff policy instead of failing the whole job, bounded by the overall extraction deadline and the configured maximum retry attempts.
-7. Read the successful upstream response into a bounded buffer, enforcing the configured maximum response size before any bytes reach the controller. If the upstream body exceeds the limit, discard the buffered bytes and return a safe `ProblemDetails`; never write a partial body to the client. Once the full response is read and validated, return it to the controller as a ready-to-read buffered stream so the controller writes the complete, unchanged body with a single `200 OK` — response headers must never be sent before the size check has passed.
+7. Read the successful upstream response into a bounded buffer, enforcing the configured maximum response size before any bytes reach the controller. If the upstream body exceeds the limit, discard the buffered bytes and return a safe `ProblemDetails`; never write a partial body to the client. Once the full response is read and validated, return it to the controller for transaction normalization.
 
 ### Phase 4: Controller, errors, and verification
 
 1. Add `DocumentExtractionsController` at `POST /api/document-extractions`. It performs binding and validation, invokes PDF preparation, invokes `IDocumentExtractionProvider`, copies the raw successful result to the caller, and owns no provider-specific route or options logic.
 2. Return `ProblemDetails` for invalid files, unsupported or corrupt PDFs, missing or wrong passwords, oversized uploads, invalid configuration, provider unavailability, failed jobs, and extraction deadlines.
 3. Log only outcome, category, duration, and correlation data. Omit file contents, document-derived personal data, passwords, PDF names, and temporary paths.
-4. Add an xUnit test project if one is not present. Unit-test configuration-to-multipart mapping, PDF preparation, async status transitions, timeout/cancellation, cleanup, raw JSON pass-through, and safe error mapping.
+4. Add an xUnit test project if one is not present. Unit-test configuration-to-multipart mapping, PDF preparation, async status transitions, timeout/cancellation, cleanup, supported transaction-table normalization, and safe error mapping.
 5. Use a stub `HttpMessageHandler` for provider tests; do not require the real container in unit tests.
 6. Add a concise README link to the local setup guide, local configuration keys, one API request example, expected long-running request behavior, and the explicit note that raw upstream JSON is intentionally passed through.
 7. Run `dotnet build`, focused tests, and manual API checks against the live local Docling instance using protected and unprotected redacted or synthetic PDFs. Confirm returned JSON matches the provider response byte-for-byte except HTTP transfer framing, and no temporary files remain afterward.
@@ -141,7 +142,7 @@ The controller does not know provider endpoints or conversion settings. It calls
 1. Startup validation rejects an invalid base URL, non-positive poll interval or timeout, missing route templates, and invalid size limits.
 2. Both unprotected and password-protected PDF requests reach the configured async endpoint with a PDF that opens without a password.
 3. The async submit, poll, and result sequence completes for the local service despite conversion taking longer than Docling's synchronous 120-second limit.
-4. A success response contains the exact provider JSON payload, not a normalized or wrapped DTO. A local or provider failure produces safe `ProblemDetails`.
+4. A success response contains only normalized transaction header/value objects. An unsupported document returns `422`; a local or provider failure produces safe `ProblemDetails`.
 5. Focused tests cover wrong or missing passwords, invalid PDFs, timeout, failed jobs, request cancellation, multipart mapping, and temporary-file cleanup.
 6. An upstream response larger than the configured maximum response size never reaches the client as a partial body; it produces a safe `ProblemDetails` instead, with no response headers sent beforehand.
 7. A transient network failure during a single status or result poll is retried and does not fail the job on its own; only terminal task failure or deadline expiry does. A plaintext HTTP request to the endpoint is rejected rather than redirected. Uploads exceeding the configured limit are rejected by Kestrel/multipart size limits before reaching provider invocation. Generated temporary file names are unpredictable and never derived from client input.

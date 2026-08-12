@@ -119,7 +119,7 @@ curl.exe -sS "http://localhost:5001/v1/result/$taskId" `
 Get-Content .\docling-response.json -Raw
 ```
 
-The .NET integration follows this same sequence and returns the successful result body unchanged. It parses only the small submission and status envelopes needed to control polling.
+The .NET provider integration follows this same sequence and returns the successful result body to the API unchanged. The API then maps supported structured JSON or Markdown transaction tables into header/value objects.
 
 ## Logs and Shutdown
 
@@ -157,4 +157,4 @@ If the container was started without `--name`, find its generated name with `doc
 - The public endpoint accepts only a file and optional PDF password. Passwords must not be logged or persisted.
 - The API first creates an unprotected request-scoped PDF because the provider boundary receives an unprotected document.
 - Temporary PDFs must be deleted after every request, including cancellation and provider failure.
-- The current prototype intentionally passes through the provider JSON. It does not yet normalize tables into transactions, validate account balances, persist documents, or provide a user interface.
+- The current prototype normalizes supported tables into transaction header/value objects. It does not yet validate account balances, persist documents, or provide a user interface.

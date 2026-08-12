@@ -75,15 +75,33 @@ export interface TransactionSummary {
 
 export interface TransactionPage { items: TransactionSummary[]; page: number; pageSize: number; totalCount: number; }
 
+export type TransactionLineType = 'Product' | 'Tax' | 'Fee' | 'Discount' | 'Other';
 export interface TransactionTag { tagId: string; slug: string; name: string; state: TagState; source: TagSource; decidedAt: string; }
-export interface TransactionLine { id: string; position: number; lineType: string; description: string; quantity: number | null; unitAmount: number | null; amount: number; tags: TransactionTag[]; }
+export interface TransactionLine { id: string; position: number; lineType: TransactionLineType; description: string; quantity: number | null; unitAmount: number | null; amount: number; tags: TransactionTag[]; }
 
-export interface TransactionDetail extends TransactionSummary {
+// Exact wire shape of GET /api/transactions/{id} and PUT — does NOT extend TransactionSummary:
+// the backend detail record has NO hasLines. Wire types mirror the wire exactly; view
+// concerns (hasLines = lines.length > 0) are derived in an explicit mapper, never by
+// structural inheritance that would let TypeScript "prove" fields the server never sends.
+export interface TransactionDetail {
+  id: string; origin: Origin; transactionDate: string; description: string;
+  accountLabel: string | null; externalReference: string | null;
+  direction: Direction; amount: number; currency: string;
+  categoryId: string | null; receiptUrl: string | null;
+  lineExtractionStatus: LineExtractionStatus;
   documentImportId: string | null; importPosition: number | null;
   sourceFormat: SourceFormat | null; balanceAfter: number | null;
   lines: TransactionLine[]; tags: TransactionTag[];
 }
-// Note: the backend detail record has no hasLines; derive it as lines.length > 0 when reusing summary-typed code.
+
+// Exact wire shape of the 201 body from POST /api/transactions (ManualTransactionResponse).
+// Much smaller than TransactionDetail — no origin, no lineExtractionStatus, no lines/tags.
+export interface ManualTransactionCreated {
+  id: string; transactionDate: string; description: string;
+  accountLabel: string | null; externalReference: string | null;
+  direction: Direction; amount: number; currency: string;
+  categoryId: string | null; receiptUrl: string | null;
+}
 
 export interface TransactionWrite {           // body for POST and PUT /api/transactions
   transactionDate: string; description: string; direction: Direction; amount: number;
@@ -121,7 +139,7 @@ export class ApiError extends Error {
     public status: number,
     public title: string,
     public detail?: string,
-    public errors?: Record<string, string[]>,   // ValidationProblemDetails field map (camelCased keys)
+    public errors?: Record<string, string[]>,   // ValidationProblemDetails field map, keys normalized to camelCase by the client
   ) { super(title); }
 }
 
@@ -132,26 +150,30 @@ export async function apiFetchVoid(path: string, init?: RequestInit): Promise<vo
 Behavior:
 - Prefix every path with `/api` is NOT done here — callers pass full paths (`/api/transactions`); the module stays a dumb transport.
 - `ok` → parse JSON (`apiFetch`) or return (`apiFetchVoid`).
-- Non-`ok` with `content-type` containing `application/problem+json` → throw `ApiError(status, body.title ?? 'Request failed', body.detail, body.errors)` — `body.errors` is present on `[ApiController]` `ValidationProblemDetails` responses and carries per-field messages for form display.
+- Non-`ok` with `content-type` containing `application/problem+json` → throw `ApiError(status, body.title ?? 'Request failed', body.detail, normalizeErrorKeys(body.errors))`. `body.errors` is present on `[ApiController]` `ValidationProblemDetails` responses; **its keys are CLR property names (`TransactionDate`, `Description`) — the client lower-cases the first character of each key** so forms address fields by their camelCase names.
 - Non-`ok` otherwise → throw `ApiError(status, 'Request failed')` (this covers 413, which Kestrel emits without a problem+json body).
-- Network failure → the native `TypeError` propagates; `AbortError` propagates untouched (UploadPage handles it specifically).
+- **Every failure that isn't a cancellation is an `ApiError`**: a network-level `TypeError` is wrapped as `ApiError(0, 'Network error')` so pages have exactly two error cases — `ApiError` (render/map it) and `AbortError` (cancellation; propagates untouched, and only pages that cancel handle it). No page ever sees a raw `TypeError`.
 - JSON bodies: callers pass `body: JSON.stringify(...)`; `apiFetch` sets `content-type: application/json` only when `init.body` is a string (never for `FormData`, so the browser sets the multipart boundary).
 
 Endpoint modules (thin, fully typed):
 
 ```ts
-// api/categories.ts — module-level promise cache; every caller shares one request per session
+// api/categories.ts — module-level cache shared by all callers.
+// A rejected promise is NEVER cached: on failure the cache slot is cleared so the
+// next call retries. (cache ??= apiFetch(...).catch(e => { cache = undefined; throw e; }))
 let cache: Promise<Category[]> | undefined;
-export function getCategories(): Promise<Category[]>      // cache ??= apiFetch(...)
+export function getCategories(): Promise<Category[]>
 
-// api/transactions.ts
-export function listTransactions(p: TransactionListParams): Promise<TransactionPage>  // URLSearchParams, omit undefined
-export function getTransaction(id: string): Promise<TransactionDetail>
-export function createTransaction(body: TransactionWrite): Promise<TransactionDetail> // 201 body is ManualTransactionResponse; type as subset
+// api/transactions.ts — every query accepts an optional AbortSignal for stale-request
+// cancellation (pages abort on param change/unmount and additionally guard with a
+// request-generation counter so late resolutions of superseded requests are discarded).
+export function listTransactions(p: TransactionListParams, signal?: AbortSignal): Promise<TransactionPage>
+export function getTransaction(id: string, signal?: AbortSignal): Promise<TransactionDetail>
+export function createTransaction(body: TransactionWrite): Promise<ManualTransactionCreated>  // exact 201 wire shape
 export function updateTransaction(id: string, body: TransactionWrite): Promise<TransactionDetail>
 
 // api/reports.ts
-export function getSpendingReport(g: 'week' | 'month', from?: string, to?: string): Promise<SpendingReport>
+export function getSpendingReport(g: 'week' | 'month', from?: string, to?: string, signal?: AbortSignal): Promise<SpendingReport>
 
 // api/imports.ts
 export function uploadStatement(file: File, password: string | undefined, signal: AbortSignal): Promise<ImportResult>
