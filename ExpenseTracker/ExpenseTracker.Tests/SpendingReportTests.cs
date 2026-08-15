@@ -141,6 +141,41 @@ public sealed class SpendingReportTests
         Assert.Equal(TransactionDirection.Credit, row.Direction);
     }
 
+    [Fact]
+    public async Task ConfirmedDuplicateIsExcludedFromReportTotalsAndCounts()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var original = Manual(new DateOnly(2026, 8, 1), TransactionDirection.Debit, 40m, FoodCategoryId);
+        var confirmed = Manual(new DateOnly(2026, 8, 2), TransactionDirection.Debit, 60m, FoodCategoryId);
+        confirmed.DuplicateFlags.Add(new TransactionDuplicateFlag
+        {
+            Id = Guid.NewGuid(),
+            TransactionId = confirmed.Id,
+            MatchedTransactionId = original.Id,
+            Reason = DuplicateMatchReason.Composite,
+            State = DuplicateFlagState.Confirmed,
+            SuggestedAt = DateTimeOffset.UtcNow,
+            DecidedAt = DateTimeOffset.UtcNow
+        });
+
+        await using (var context = await database.CreateContextAsync())
+        {
+            context.Transactions.AddRange(original, confirmed);
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<ReportService>();
+        var result = await service.GetSpendingAsync(
+            SpendingGranularity.Month,
+            new DateOnly(2026, 8, 1),
+            new DateOnly(2026, 8, 31),
+            CancellationToken.None);
+
+        var row = Assert.Single(result.Report!.Rows);
+        Assert.Equal(40m, row.Total);
+        Assert.Equal(1, row.Count);
+    }
+
     private static ExpenseTransaction Manual(DateOnly date, TransactionDirection direction, decimal amount, Guid? categoryId) =>
         new()
         {

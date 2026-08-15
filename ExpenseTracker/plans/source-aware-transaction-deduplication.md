@@ -67,7 +67,9 @@ Add `TransactionDuplicateFlag`:
 - `SuggestedAt`: timestamp when the importer creates the suggestion
 - `DecidedAt`: null while `Suggested`; set when a later review changes the state to `Confirmed` or `Rejected`
 
-A transaction has at most one `TransactionDuplicateFlag` (unique index on `TransactionId`). `MatchedTransactionId` is not unique; one existing transaction may be the match target for several later flags. `Confirmed`/`Rejected` transitions and any effect on totals/reports are out of scope for this slice (see §11); the field exists so a later slice can add the decision without another migration.
+A transaction has at most one `TransactionDuplicateFlag` (unique index on `TransactionId`). `MatchedTransactionId` is not unique; one existing transaction may be the match target for several later flags. A later review changes `Suggested` to `Confirmed` or `Rejected` and sets `DecidedAt`. Repeating the same terminal decision is idempotent; changing `Confirmed` to `Rejected` or vice versa is rejected until an explicit audit/edit workflow exists.
+
+When a flag is `Confirmed`, the flagged transaction is excluded from transaction collection responses and spending reports. The matched transaction remains visible and included. The flagged transaction remains directly retrievable by ID for review and audit.
 
 ## 4. Duplicate Identity Rules
 
@@ -181,7 +183,7 @@ Keep `POST /api/document-extractions` as the entry point. Extend `TransactionImp
 
 Preserve `IsDuplicate` for identical files. It must not be reused for row-level flagging.
 
-The first UI slice displays the counts and flagged rows with their matched transaction. A later slice adds the confirm/reject decision endpoint and any resulting report/total exclusion; it is outside this HLD's first implementation boundary.
+The first UI slice displays the counts and flagged rows with their matched transaction. It also provides immediate per-row decisions for flagged rows. `Confirm duplicate` sets `DuplicateFlagState.Confirmed`; `Keep both` sets `DuplicateFlagState.Rejected`. The decision endpoint returns the updated flag details. Confirmed flagged transactions are excluded server-side from transaction list responses and spending reports; suggested and rejected rows remain visible.
 
 ## 8. Persistence and Migration
 
@@ -200,6 +202,8 @@ Add EF configuration for `TransactionDuplicateFlag`: unique index on `Transactio
 - A unique content-hash constraint protects concurrent identical uploads.
 - The import transaction remains atomic: extraction rows, their persistence, and any duplicate flags are either all committed together or nothing is committed.
 - No row is ever skipped, altered, or rejected because of a duplicate match; a match only adds a `Suggested` flag for later human review.
+- Confirming a flag changes only review metadata and read-side visibility. It does not delete, merge, alter, or exclude the matched transaction.
+- The same terminal decision is idempotent. A transition between `Confirmed` and `Rejected` is rejected until an explicit audit/edit workflow exists.
 - The first slice assumes only one document upload is processed at a time. Different overlapping files uploaded concurrently are outside the concurrency guarantee and may create duplicate rows or missed flags; serialization or a durable identity constraint requires a later design decision.
 - A failed or invalid extraction creates no `DocumentImport`.
 
@@ -215,8 +219,13 @@ Backend tests must cover:
 - an Instamart/BankStatement row whose `ExternalReference` matches more than one existing transaction is flagged against the closest-date/lowest-id candidate only, with exactly one flag row created
 - provider backfill for existing imports
 - concurrent identical uploads
+- confirming a suggested flag sets `Confirmed` and `DecidedAt`, while rejecting sets `Rejected`
+- repeating the same terminal decision is idempotent; changing `Confirmed` to `Rejected` or vice versa is rejected
+- confirmed flagged transactions are absent from transaction list responses and report totals/counts, while suggested/rejected rows and the matched original remain visible
+- a confirmed flagged transaction remains available from direct `GET /api/transactions/{id}`
+- the decision endpoint rejects non-HTTPS requests
 
-Run focused .NET tests, full `dotnet test`, frontend typecheck/tests, and a manual overlap import using realistic redacted SuperMoney data. Verify that every extracted row results in a persisted transaction and that flagged rows are visible with their matched transaction ID in the API response.
+Run focused .NET tests, full `dotnet test`, frontend typecheck/tests, and a manual overlap import using realistic redacted SuperMoney data. Verify that every extracted row results in a persisted transaction and that flagged rows are visible with their matched transaction ID in the API response. Verify the import-result UI can confirm or keep each suggested row and reflects the persisted terminal state.
 
 ## 11. Scope Boundaries
 
@@ -234,9 +243,14 @@ Excluded from the first slice:
 - account reconciliation
 - automatic merging of categories or tags
 - deletion of existing duplicates
-- confirm/reject decision endpoint and UI
-- any effect of `Confirmed`/`Rejected` state on totals or reports
+- fuzzy review workflows beyond the per-row confirm/reject actions
 - provider-specific UI configuration
+
+Included in this slice:
+
+- per-row confirm/reject decision endpoint and import-result UI
+- exclusion of `Confirmed` flagged transactions from transaction list responses and spending reports
+- direct transaction lookup by ID remains available for confirmed duplicates
 
 ## 12. Low-Level Design
 
@@ -253,8 +267,10 @@ The first implementation should stay within the existing persistence, extraction
 | `Services/DocumentImportService.cs` | Own content-hash idempotency, the database transaction, entity creation, and result projection. It must not implement matching rules. |
 | `Services/DocumentExtractionService.cs` | Pass provider metadata from the parser/import orchestration into `DocumentImportService`. |
 | `Services/TransactionResultParser.cs` | Continue parsing rows and existing source formats; do not query the database or decide duplicates. |
+| `Services/TransactionQueryExtensions.cs` | Provide the shared query predicate that excludes confirmed flagged transactions from collection/report queries. |
 | `Program.cs` and `ExpenseTracker.Tests/TestDatabase.cs` | Register the new scoped service and its test registration. |
-- `frontend/src/api/types.ts` and the relevant `frontend/src/App.tsx` result-rendering section | Mirror the response contracts and display flagged rows read-only. |
+| `Controllers/TransactionsController.cs` and `Models/Transactions/*` | Expose the per-row duplicate decision request, response, and transition outcomes. |
+| `frontend/src/api/types.ts`, `frontend/src/api/transactions.ts`, and the relevant `frontend/src/App.tsx` result-rendering section | Mirror the response contracts and provide immediate per-row confirm/reject actions. |
 | `Migrations/*` | Add the provider and duplicate-flag schema changes, including removal of the obsolete composite index. |
 
 The existing `TransactionTag` model is a pattern for stateful suggestions, but duplicate flags are a separate relationship because a flag points from a newly imported transaction to another transaction. Do not reuse tag entities or tag state enums.
@@ -278,7 +294,7 @@ public sealed class TransactionDuplicateFlag
 }
 ```
 
-Use `SuggestedAt` rather than overloading `DecidedAt`: a newly created `Suggested` flag has not been decided. `DecidedAt` remains null until a later confirm/reject operation. The decision endpoint is out of scope, but this shape prevents a second migration when it is added.
+Use `SuggestedAt` rather than overloading `DecidedAt`: a newly created `Suggested` flag has not been decided. `DecidedAt` remains null until the confirm/reject operation.
 
 Add these navigation properties:
 
@@ -443,8 +459,9 @@ Implement and verify in this order:
 3. Add provider metadata to import inputs/results without changing matching behavior.
 4. Integrate classification into `DocumentImportService` and add SQLite integration tests proving all rows persist and flags point to earlier transactions.
 5. Add migration generation and a PostgreSQL migration test/data validation step.
-6. Update the API and frontend result handling to display flagged rows, leaving decisions read-only.
-7. Run focused .NET tests, full `dotnet test`, frontend typecheck/tests, and the redacted manual overlap import.
+6. Add the duplicate decision endpoint and frontend result handling with immediate per-row confirm/reject actions.
+7. Apply confirmed-duplicate exclusion to transaction list and report queries while retaining direct transaction lookup.
+8. Run focused .NET tests, full `dotnet test`, frontend typecheck/tests, and the redacted manual overlap import.
 
 Required regression assertions:
 

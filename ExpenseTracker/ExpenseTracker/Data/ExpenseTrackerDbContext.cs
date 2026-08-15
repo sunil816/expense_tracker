@@ -78,6 +78,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         entity.Property(transaction => transaction.SourceFormat).HasColumnName("source_format").HasConversion<string>().HasMaxLength(30);
         entity.Property(transaction => transaction.TransactionDate).HasColumnName("transaction_date");
         entity.Property(transaction => transaction.Description).HasColumnName("description").IsRequired();
+        entity.Property(transaction => transaction.Note).HasColumnName("note").HasMaxLength(2000);
         entity.Property(transaction => transaction.AccountLabel).HasColumnName("account_label").HasMaxLength(200);
         entity.Property(transaction => transaction.ExternalReference).HasColumnName("external_reference").HasMaxLength(200);
         entity.Property(transaction => transaction.Direction).HasColumnName("direction").HasConversion<string>().HasMaxLength(10);

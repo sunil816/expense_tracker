@@ -12,6 +12,9 @@ public sealed class TransactionUpdateRequest
     [StringLength(500, MinimumLength = 1)]
     public string Description { get; set; } = string.Empty;
 
+    [StringLength(2000)]
+    public string? Note { get; set; }
+
     [Required]
     public TransactionDirection? Direction { get; set; }
 
@@ -35,6 +38,12 @@ public sealed class TransactionTagRequest
 {
     [Required]
     public Guid? TagId { get; set; }
+}
+
+public sealed class DuplicateFlagDecisionRequest
+{
+    [Required]
+    public DuplicateFlagState? State { get; set; }
 }
 
 public sealed class MatchingTransactionQuery
@@ -68,6 +77,19 @@ public enum TransactionTagUpdateOutcome
 public sealed record TransactionTagUpdateResult(
     TransactionTagUpdateOutcome Outcome,
     TransactionDetailResponse? Transaction);
+
+public enum DuplicateFlagDecisionOutcome
+{
+    Updated,
+    AlreadyDecided,
+    NotFound,
+    InvalidState,
+    Conflict
+}
+
+public sealed record DuplicateFlagDecisionResult(
+    DuplicateFlagDecisionOutcome Outcome,
+    DuplicateFlagResponse? Flag);
 
 public enum TransactionUpdateOutcome
 {

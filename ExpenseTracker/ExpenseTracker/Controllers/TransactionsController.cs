@@ -70,6 +70,37 @@ public sealed class TransactionsController(TransactionService transactionService
         };
     }
 
+    [HttpPut("{transactionId:guid}/duplicate-flag")]
+    public async Task<IActionResult> DecideDuplicateFlagAsync(
+        Guid transactionId,
+        [FromBody] DuplicateFlagDecisionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (RequireHttps() is { } insecure)
+        {
+            return insecure;
+        }
+
+        var result = await transactionService.DecideDuplicateFlagAsync(
+            transactionId,
+            request.State!.Value,
+            cancellationToken);
+        return result.Outcome switch
+        {
+            DuplicateFlagDecisionOutcome.Updated => Ok(result.Flag),
+            DuplicateFlagDecisionOutcome.AlreadyDecided => Ok(result.Flag),
+            DuplicateFlagDecisionOutcome.InvalidState => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "The duplicate flag state is invalid.",
+                detail: "A duplicate flag can only be confirmed or rejected."),
+            DuplicateFlagDecisionOutcome.Conflict => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The duplicate flag was already decided.",
+                detail: "An existing decision cannot be changed."),
+            _ => TransactionNotFound()
+        };
+    }
+
     [HttpPut("category/matches")]
     public async Task<IActionResult> UpdateCategoryForMatchesAsync([FromBody] BulkCategoryRequest request, CancellationToken cancellationToken)
     {

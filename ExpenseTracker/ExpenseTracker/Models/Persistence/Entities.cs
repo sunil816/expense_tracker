@@ -106,6 +106,7 @@ public sealed class ExpenseTransaction
     public SourceDocumentFormat? SourceFormat { get; set; }
     public DateOnly TransactionDate { get; set; }
     public required string Description { get; set; }
+    public string? Note { get; set; }
     public string? AccountLabel { get; set; }
     public string? ExternalReference { get; set; }
     public TransactionDirection Direction { get; set; }

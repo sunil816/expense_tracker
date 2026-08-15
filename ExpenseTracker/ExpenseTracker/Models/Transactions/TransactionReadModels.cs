@@ -31,6 +31,7 @@ public sealed record TransactionSummaryResponse(
     TransactionOrigin Origin,
     DateOnly TransactionDate,
     string Description,
+    string? Note,
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
@@ -55,6 +56,15 @@ public sealed record TransactionTagResponse(
     TagAssignmentSource Source,
     DateTimeOffset DecidedAt);
 
+public sealed record DuplicateFlagResponse(
+    Guid FlagId,
+    Guid TransactionId,
+    Guid MatchedTransactionId,
+    DuplicateMatchReason Reason,
+    DuplicateFlagState State,
+    DateTimeOffset SuggestedAt,
+    DateTimeOffset? DecidedAt);
+
 public sealed record TransactionLineResponse(
     Guid Id,
     int Position,
@@ -70,6 +80,7 @@ public sealed record TransactionDetailResponse(
     TransactionOrigin Origin,
     DateOnly TransactionDate,
     string Description,
+    string? Note,
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,

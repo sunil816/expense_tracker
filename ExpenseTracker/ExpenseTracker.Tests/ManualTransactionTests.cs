@@ -27,6 +27,7 @@ public sealed class ManualTransactionTests
         {
             TransactionDate = new DateOnly(2026, 8, 2),
             Description = "  Cash lunch  ",
+            Note = "  Lunch with team  ",
             Direction = TransactionDirection.Debit,
             Amount = 250m,
             AccountLabel = " Cash ",
@@ -35,6 +36,7 @@ public sealed class ManualTransactionTests
 
         Assert.NotNull(created);
         Assert.Equal("Cash lunch", created.Description);
+        Assert.Equal("Lunch with team", created.Note);
         Assert.Equal("Cash", created.AccountLabel);
         Assert.Equal("INR", created.Currency);
         Assert.Equal(250m, created.Amount);
@@ -47,6 +49,7 @@ public sealed class ManualTransactionTests
         Assert.Null(stored.SourceFormat);
         Assert.Equal(LineExtractionStatus.NotApplicable, stored.LineExtractionStatus);
         Assert.Equal(FoodCategoryId, stored.CategoryId);
+        Assert.Equal("Lunch with team", stored.Note);
         Assert.Empty(await context.DocumentImports.ToListAsync());
     }
 

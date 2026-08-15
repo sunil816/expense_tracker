@@ -25,6 +25,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             Origin = TransactionOrigin.Manual,
             TransactionDate = request.TransactionDate!.Value,
             Description = request.Description.Trim(),
+            Note = NullIfWhiteSpace(request.Note),
             AccountLabel = NullIfWhiteSpace(request.AccountLabel),
             ExternalReference = NullIfWhiteSpace(request.ExternalReference),
             Direction = request.Direction!.Value,
@@ -41,6 +42,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             transaction.Id,
             transaction.TransactionDate,
             transaction.Description,
+            transaction.Note,
             transaction.AccountLabel,
             transaction.ExternalReference,
             transaction.Direction,
@@ -53,7 +55,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
     public async Task<TransactionPageResponse> ListAsync(TransactionListQuery query, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var transactions = context.Transactions.AsNoTracking();
+        var transactions = context.Transactions.AsNoTracking().ExcludingConfirmedDuplicates();
 
         if (query.From is { } from)
         {
@@ -100,6 +102,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 transaction.Origin,
                 transaction.TransactionDate,
                 transaction.Description,
+                transaction.Note,
                 transaction.AccountLabel,
                 transaction.ExternalReference,
                 transaction.Direction,
@@ -143,6 +146,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 transaction.Origin,
                 transaction.TransactionDate,
                 transaction.Description,
+                transaction.Note,
                 transaction.AccountLabel,
                 transaction.ExternalReference,
                 transaction.Direction,
@@ -229,6 +233,40 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             await LoadDetailAsync(context, transactionId, cancellationToken));
     }
 
+    public async Task<DuplicateFlagDecisionResult> DecideDuplicateFlagAsync(
+        Guid transactionId,
+        DuplicateFlagState state,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var flag = await context.TransactionDuplicateFlags
+            .SingleOrDefaultAsync(candidate => candidate.TransactionId == transactionId, cancellationToken);
+        if (flag is null)
+        {
+            return new DuplicateFlagDecisionResult(DuplicateFlagDecisionOutcome.NotFound, null);
+        }
+
+        if (state is not DuplicateFlagState.Confirmed and not DuplicateFlagState.Rejected)
+        {
+            return new DuplicateFlagDecisionResult(DuplicateFlagDecisionOutcome.InvalidState, ToDuplicateFlagResponse(flag));
+        }
+
+        if (flag.State == state)
+        {
+            return new DuplicateFlagDecisionResult(DuplicateFlagDecisionOutcome.AlreadyDecided, ToDuplicateFlagResponse(flag));
+        }
+
+        if (flag.State != DuplicateFlagState.Suggested)
+        {
+            return new DuplicateFlagDecisionResult(DuplicateFlagDecisionOutcome.Conflict, ToDuplicateFlagResponse(flag));
+        }
+
+        flag.State = state;
+        flag.DecidedAt = DateTimeOffset.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+        return new DuplicateFlagDecisionResult(DuplicateFlagDecisionOutcome.Updated, ToDuplicateFlagResponse(flag));
+    }
+
     /// <summary>Replaces the user-editable columns; provenance, currency, lines and tags are left untouched.</summary>
     public async Task<TransactionUpdateResult> UpdateAsync(
         Guid transactionId,
@@ -251,6 +289,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
 
         transaction.TransactionDate = request.TransactionDate!.Value;
         transaction.Description = request.Description.Trim();
+        transaction.Note = NullIfWhiteSpace(request.Note);
         transaction.Direction = request.Direction!.Value;
         transaction.Amount = request.Amount;
         transaction.AccountLabel = NullIfWhiteSpace(request.AccountLabel);
@@ -280,6 +319,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             transaction.Origin,
             transaction.TransactionDate,
             transaction.Description,
+            transaction.Note,
             transaction.AccountLabel,
             transaction.ExternalReference,
             transaction.Direction,
@@ -317,6 +357,9 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 assignment.Source,
                 assignment.DecidedAt))
             .OrderBy(tag => tag.Name)];
+
+    private static DuplicateFlagResponse ToDuplicateFlagResponse(TransactionDuplicateFlag flag) =>
+        new(flag.Id, flag.TransactionId, flag.MatchedTransactionId, flag.Reason, flag.State, flag.SuggestedAt, flag.DecidedAt);
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

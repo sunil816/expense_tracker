@@ -182,6 +182,61 @@ public sealed class TransactionQueryTests
     }
 
     [Fact]
+    public async Task ConfirmedDuplicatesAreExcludedFromListsButRemainAvailableById()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var original = Manual(new DateOnly(2026, 8, 1), "Original", TransactionDirection.Debit);
+        var confirmed = Manual(new DateOnly(2026, 8, 2), "Confirmed duplicate", TransactionDirection.Debit);
+        var suggested = Manual(new DateOnly(2026, 8, 3), "Suggested duplicate", TransactionDirection.Debit);
+        var rejected = Manual(new DateOnly(2026, 8, 4), "Rejected duplicate", TransactionDirection.Debit);
+        confirmed.DuplicateFlags.Add(Flag(confirmed.Id, original.Id, DuplicateFlagState.Confirmed));
+        suggested.DuplicateFlags.Add(Flag(suggested.Id, original.Id, DuplicateFlagState.Suggested));
+        rejected.DuplicateFlags.Add(Flag(rejected.Id, original.Id, DuplicateFlagState.Rejected));
+
+        await using (var context = await database.CreateContextAsync())
+        {
+            context.Transactions.AddRange(original, confirmed, suggested, rejected);
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<TransactionService>();
+        var result = await service.ListAsync(new TransactionListQuery { PageSize = 10 }, CancellationToken.None);
+
+        Assert.Equal(3, result.TotalCount);
+        Assert.DoesNotContain(result.Items, item => item.Id == confirmed.Id);
+        Assert.Contains(result.Items, item => item.Id == original.Id);
+        Assert.Contains(result.Items, item => item.Id == suggested.Id);
+        Assert.Contains(result.Items, item => item.Id == rejected.Id);
+        Assert.NotNull(await service.GetAsync(confirmed.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DuplicateDecisionIsIdempotentButCannotBeReversed()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var original = Manual(new DateOnly(2026, 8, 1), "Original", TransactionDirection.Debit);
+        var duplicate = Manual(new DateOnly(2026, 8, 2), "Duplicate", TransactionDirection.Debit);
+        duplicate.DuplicateFlags.Add(Flag(duplicate.Id, original.Id, DuplicateFlagState.Suggested));
+
+        await using (var context = await database.CreateContextAsync())
+        {
+            context.Transactions.AddRange(original, duplicate);
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<TransactionService>();
+        var updated = await service.DecideDuplicateFlagAsync(duplicate.Id, DuplicateFlagState.Confirmed, CancellationToken.None);
+        var repeated = await service.DecideDuplicateFlagAsync(duplicate.Id, DuplicateFlagState.Confirmed, CancellationToken.None);
+        var reversed = await service.DecideDuplicateFlagAsync(duplicate.Id, DuplicateFlagState.Rejected, CancellationToken.None);
+
+        Assert.Equal(DuplicateFlagDecisionOutcome.Updated, updated.Outcome);
+        Assert.Equal(DuplicateFlagState.Confirmed, updated.Flag!.State);
+        Assert.NotNull(updated.Flag.DecidedAt);
+        Assert.Equal(DuplicateFlagDecisionOutcome.AlreadyDecided, repeated.Outcome);
+        Assert.Equal(DuplicateFlagDecisionOutcome.Conflict, reversed.Outcome);
+    }
+
+    [Fact]
     public async Task UncategorizedTrueIgnoresCategoryIdWhenBothAreSupplied()
     {
         var foodCategoryId = Guid.Parse("10000000-0000-0000-0000-000000000008");
@@ -222,5 +277,17 @@ public sealed class TransactionQueryTests
             LineType = TransactionLineType.Product,
             Description = description,
             Amount = amount
+        };
+
+    private static TransactionDuplicateFlag Flag(Guid transactionId, Guid matchedTransactionId, DuplicateFlagState state) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TransactionId = transactionId,
+            MatchedTransactionId = matchedTransactionId,
+            Reason = DuplicateMatchReason.Composite,
+            State = state,
+            SuggestedAt = DateTimeOffset.UtcNow,
+            DecidedAt = state == DuplicateFlagState.Suggested ? null : DateTimeOffset.UtcNow
         };
 }

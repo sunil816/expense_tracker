@@ -47,6 +47,21 @@ public sealed class ControllerValidationTests
     }
 
     [Fact]
+    public async Task DuplicateDecisionRequiresHttps()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var controller = CreateTransactionsController(database);
+
+        var result = Assert.IsType<ObjectResult>(await controller.DecideDuplicateFlagAsync(
+            Guid.NewGuid(),
+            new DuplicateFlagDecisionRequest { State = ExpenseTracker.Models.Persistence.DuplicateFlagState.Confirmed },
+            CancellationToken.None));
+
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Equal("HTTPS is required.", Assert.IsType<ProblemDetails>(result.Value).Title);
+    }
+
+    [Fact]
     public async Task ReportsSpendingRejectsMissingGranularity()
     {
         await using var database = await TestDatabase.CreateAsync();

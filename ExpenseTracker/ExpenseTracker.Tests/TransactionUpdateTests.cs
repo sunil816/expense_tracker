@@ -34,6 +34,7 @@ public sealed class TransactionUpdateTests
         {
             TransactionDate = new DateOnly(2026, 8, 9),
             Description = "  Team dinner  ",
+            Note = "  Reimbursed by Alex  ",
             Direction = TransactionDirection.Credit,
             Amount = 999m,
             AccountLabel = "   ",
@@ -45,6 +46,7 @@ public sealed class TransactionUpdateTests
         Assert.Equal(TransactionUpdateOutcome.Updated, result.Outcome);
         Assert.NotNull(result.Transaction);
         Assert.Equal("Team dinner", result.Transaction.Description);
+        Assert.Equal("Reimbursed by Alex", result.Transaction.Note);
         Assert.Null(result.Transaction.AccountLabel);
         Assert.Equal("REF-1", result.Transaction.ExternalReference);
 
@@ -55,6 +57,7 @@ public sealed class TransactionUpdateTests
         Assert.Equal(999m, stored.Amount);
         Assert.Equal(FoodCategoryId, stored.CategoryId);
         Assert.Null(stored.ReceiptUrl);
+        Assert.Equal("Reimbursed by Alex", stored.Note);
     }
 
     [Fact]

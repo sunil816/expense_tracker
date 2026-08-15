@@ -26,6 +26,7 @@ public sealed class ReportService(IDbContextFactory<ExpenseTrackerDbContext> con
 
         var slimTransactions = await context.Transactions
             .AsNoTracking()
+            .ExcludingConfirmedDuplicates()
             .Where(transaction => transaction.TransactionDate >= resolvedFrom && transaction.TransactionDate <= resolvedTo)
             .Select(transaction => new
             {

@@ -12,6 +12,9 @@ public sealed class ManualTransactionRequest
     [StringLength(500, MinimumLength = 1)]
     public string Description { get; set; } = string.Empty;
 
+    [StringLength(2000)]
+    public string? Note { get; set; }
+
     [Required]
     public TransactionDirection? Direction { get; set; }
 
@@ -35,6 +38,7 @@ public sealed record ManualTransactionResponse(
     Guid Id,
     DateOnly TransactionDate,
     string Description,
+    string? Note,
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
