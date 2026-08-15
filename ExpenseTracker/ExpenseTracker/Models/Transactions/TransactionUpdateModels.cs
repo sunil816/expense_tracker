@@ -31,6 +31,44 @@ public sealed class TransactionUpdateRequest
     public string? ReceiptUrl { get; set; }
 }
 
+public sealed class TransactionTagRequest
+{
+    [Required]
+    public Guid? TagId { get; set; }
+}
+
+public sealed class MatchingTransactionQuery
+{
+    [Required]
+    [StringLength(500, MinimumLength = 1)]
+    public string Description { get; set; } = string.Empty;
+
+    public Guid? ExcludeId { get; set; }
+}
+
+public sealed class BulkCategoryRequest
+{
+    [Required]
+    [StringLength(500, MinimumLength = 1)]
+    public string Description { get; set; } = string.Empty;
+
+    public Guid? CategoryId { get; set; }
+}
+
+public sealed record BulkCategoryResponse(int UpdatedCount);
+
+public enum TransactionTagUpdateOutcome
+{
+    Updated,
+    NotFound,
+    TagNotFound,
+    AlreadyAssigned
+}
+
+public sealed record TransactionTagUpdateResult(
+    TransactionTagUpdateOutcome Outcome,
+    TransactionDetailResponse? Transaction);
+
 public enum TransactionUpdateOutcome
 {
     Updated,

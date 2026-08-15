@@ -5,7 +5,7 @@
 **/bin/
 **/obj/
 
-# Frontend build output and dependencies
+# React frontend dependencies and generated SPA output
 frontend/node_modules/
 frontend/dist/
 ExpenseTracker/ExpenseTracker/wwwroot/

@@ -1,0 +1,10 @@
+{
+  "name": "expense-tracker-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=22 <23" },
+  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "test": "vitest run", "typecheck": "tsc -b --pretty false" },
+  "dependencies": { "@vitejs/plugin-react": "latest", "react": "latest", "react-dom": "latest", "react-router-dom": "latest", "recharts": "latest" },
+  "devDependencies": { "@types/react": "latest", "@types/react-dom": "latest", "typescript": "latest", "vite": "latest", "vitest": "latest", "jsdom": "latest" }
+}

@@ -37,6 +37,10 @@ public sealed class TransactionsController(TransactionService transactionService
         return transaction is null ? TransactionNotFound() : Ok(transaction);
     }
 
+    [HttpGet("matches")]
+    public async Task<IActionResult> FindMatchingAsync([FromQuery] MatchingTransactionQuery query, CancellationToken cancellationToken) =>
+        Ok(await transactionService.FindMatchingAsync(query, cancellationToken));
+
     [HttpPost]
     public async Task<IActionResult> CreateAsync([FromBody] ManualTransactionRequest request, CancellationToken cancellationToken)
     {
@@ -66,6 +70,54 @@ public sealed class TransactionsController(TransactionService transactionService
         };
     }
 
+    [HttpPut("category/matches")]
+    public async Task<IActionResult> UpdateCategoryForMatchesAsync([FromBody] BulkCategoryRequest request, CancellationToken cancellationToken)
+    {
+        if (RequireHttps() is { } insecure)
+        {
+            return insecure;
+        }
+
+        var result = await transactionService.UpdateCategoryForDescriptionAsync(request, cancellationToken);
+        return result.Outcome == TransactionUpdateOutcome.UnknownCategory
+            ? UnknownCategory()
+            : Ok(new BulkCategoryResponse(result.UpdatedCount));
+    }
+
+    [HttpPost("{transactionId:guid}/tags")]
+    public async Task<IActionResult> AddTagAsync(Guid transactionId, [FromBody] TransactionTagRequest request, CancellationToken cancellationToken)
+    {
+        if (RequireHttps() is { } insecure)
+        {
+            return insecure;
+        }
+
+        var result = await transactionService.AddTagAsync(transactionId, request.TagId!.Value, cancellationToken);
+        return result.Outcome switch
+        {
+            TransactionTagUpdateOutcome.Updated => Ok(result.Transaction),
+            TransactionTagUpdateOutcome.AlreadyAssigned => Ok(result.Transaction),
+            TransactionTagUpdateOutcome.TagNotFound => TagNotFound(),
+            _ => TransactionNotFound()
+        };
+    }
+
+    [HttpDelete("{transactionId:guid}/tags/{tagId:guid}")]
+    public async Task<IActionResult> RemoveTagAsync(Guid transactionId, Guid tagId, CancellationToken cancellationToken)
+    {
+        if (RequireHttps() is { } insecure)
+        {
+            return insecure;
+        }
+
+        var result = await transactionService.RemoveTagAsync(transactionId, tagId, cancellationToken);
+        return result.Outcome switch
+        {
+            TransactionTagUpdateOutcome.Updated => Ok(result.Transaction),
+            _ => TransactionNotFound()
+        };
+    }
+
     private IActionResult UnknownCategory() =>
         Problem(
             statusCode: StatusCodes.Status400BadRequest,
@@ -77,6 +129,12 @@ public sealed class TransactionsController(TransactionService transactionService
             statusCode: StatusCodes.Status404NotFound,
             title: "The transaction does not exist.",
             detail: "The requested transaction could not be found.");
+
+    private IActionResult TagNotFound() =>
+        Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "The tag does not exist.",
+            detail: "tagId must reference an existing tag.");
 
     private IActionResult? RequireHttps() =>
         Request.IsHttps

@@ -75,3 +75,18 @@ Cash and other transactions that have no source document are recorded with `POST
 A successful request returns `201 Created` with the saved transaction. An unknown `categoryId` returns `400 Bad Request` and stores nothing. Manual entries are not deduplicated, so a retried submit creates a second row.
 
 For qpdf installation, server configuration, Docling connectivity, and deployment verification, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Frontend
+
+The React + TypeScript client lives in `frontend/`. It uses the Vite development proxy for the HTTPS API and builds the production SPA into `ExpenseTracker/ExpenseTracker/wwwroot`.
+
+```powershell
+Set-Location frontend
+npm ci
+npm test
+npm run dev
+```
+
+Open the development client at `http://localhost:5173/`. Vite serves the local UI over HTTP because the machine's local TLS stack does not negotiate the self-signed development certificate reliably; API calls still proxy to the HTTPS ASP.NET endpoint.
+
+For a release, run `npm ci`, `npm test`, and `npm run build` before `dotnet publish`. The published output must contain `wwwroot/index.html`; the full release and smoke-test procedure is in [DEPLOYMENT.md](DEPLOYMENT.md).

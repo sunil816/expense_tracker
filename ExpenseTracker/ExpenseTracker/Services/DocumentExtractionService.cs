@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using ExpenseTracker.Models.Extraction;
+using ExpenseTracker.Models.Persistence;
 using ExpenseTracker.Options;
 using Microsoft.Extensions.Options;
 
@@ -61,7 +62,8 @@ public sealed class DocumentExtractionService(
                     throw new DocumentExtractionException(DocumentExtractionError.NoSupportedTransactionData, "No supported transaction data was found.");
                 }
 
-                return await documentImportService.SaveAsync(contentHash, transactions, cancellationToken);
+                var provider = GetProvider(transactions);
+                return await documentImportService.SaveAsync(contentHash, transactions, provider, cancellationToken);
             }
             finally
             {
@@ -72,6 +74,28 @@ public sealed class DocumentExtractionService(
         {
             bufferedInput?.Dispose();
         }
+    }
+
+    private static SourceProvider GetProvider(IReadOnlyList<ExtractedTransaction> transactions)
+    {
+        var providers = transactions
+            .Select(transaction => transaction.SourceFormat switch
+            {
+                SourceDocumentFormat.PaymentExport => SourceProvider.SuperMoney,
+                SourceDocumentFormat.OrderHistory => SourceProvider.Instamart,
+                SourceDocumentFormat.BankStatement => SourceProvider.BankStatement,
+                _ => throw new DocumentExtractionException(
+                    DocumentExtractionError.NoSupportedTransactionData,
+                    "The extraction contains an unsupported source format.")
+            })
+            .Distinct()
+            .ToArray();
+
+        return providers.Length == 1
+            ? providers[0]
+            : throw new DocumentExtractionException(
+                DocumentExtractionError.NoSupportedTransactionData,
+                "An uploaded document must contain one source provider.");
     }
 
     private async Task<MemoryStream> BufferInputAsync(Stream input, CancellationToken cancellationToken)

@@ -3,6 +3,7 @@ using System;
 using ExpenseTracker.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ExpenseTracker.Migrations
 {
     [DbContext(typeof(ExpenseTrackerDbContext))]
-    partial class ExpenseTrackerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812213741_AddFuelCategory")]
+    partial class AddFuelCategory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -185,12 +188,6 @@ namespace ExpenseTracker.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("imported_at");
 
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("provider");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ContentHash")
@@ -306,6 +303,9 @@ namespace ExpenseTracker.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_transactions_import_position");
 
+                    b.HasIndex("TransactionDate", "Amount", "Direction", "ExternalReference")
+                        .HasDatabaseName("ix_transactions_duplicate_detection");
+
                     b.ToTable("transactions", null, t =>
                         {
                             t.HasCheckConstraint("ck_transactions_amount_non_negative", "amount >= 0");
@@ -342,56 +342,6 @@ namespace ExpenseTracker.Migrations
                         .HasDatabaseName("ix_tags_slug");
 
                     b.ToTable("tags", (string)null);
-                });
-
-            modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionDuplicateFlag", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset?>("DecidedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("decided_at");
-
-                    b.Property<Guid>("MatchedTransactionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("matched_transaction_id");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("reason");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("state");
-
-                    b.Property<DateTimeOffset>("SuggestedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("suggested_at");
-
-                    b.Property<Guid>("TransactionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("transaction_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MatchedTransactionId")
-                        .HasDatabaseName("ix_transaction_duplicate_flags_matched_transaction_id");
-
-                    b.HasIndex("TransactionId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_transaction_duplicate_flags_transaction_id");
-
-                    b.ToTable("transaction_duplicate_flags", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_transaction_duplicate_flags_not_self", "transaction_id <> matched_transaction_id");
-                        });
                 });
 
             modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionLine", b =>
@@ -554,25 +504,6 @@ namespace ExpenseTracker.Migrations
                     b.Navigation("DocumentImport");
                 });
 
-            modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionDuplicateFlag", b =>
-                {
-                    b.HasOne("ExpenseTracker.Models.Persistence.ExpenseTransaction", "MatchedTransaction")
-                        .WithMany("MatchedByDuplicateFlags")
-                        .HasForeignKey("MatchedTransactionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ExpenseTracker.Models.Persistence.ExpenseTransaction", "Transaction")
-                        .WithMany("DuplicateFlags")
-                        .HasForeignKey("TransactionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("MatchedTransaction");
-
-                    b.Navigation("Transaction");
-                });
-
             modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionLine", b =>
                 {
                     b.HasOne("ExpenseTracker.Models.Persistence.ExpenseTransaction", "Transaction")
@@ -636,11 +567,7 @@ namespace ExpenseTracker.Migrations
 
             modelBuilder.Entity("ExpenseTracker.Models.Persistence.ExpenseTransaction", b =>
                 {
-                    b.Navigation("DuplicateFlags");
-
                     b.Navigation("Lines");
-
-                    b.Navigation("MatchedByDuplicateFlags");
 
                     b.Navigation("TagAssignments");
                 });

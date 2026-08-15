@@ -27,6 +27,7 @@ internal sealed class TestDatabase(SqliteConnection connection, ServiceProvider 
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddDbContextFactory<ExpenseTrackerDbContext>(options => options.UseSqlite(connection));
         serviceCollection.AddScoped<DocumentImportService>();
+        serviceCollection.AddScoped<ITransactionDuplicateService, TransactionDuplicateService>();
         serviceCollection.AddScoped<TransactionService>();
         serviceCollection.AddScoped<TagService>();
         serviceCollection.AddScoped<CategoryService>();

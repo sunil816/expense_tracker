@@ -18,6 +18,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<TransactionTag> TransactionTags => Set<TransactionTag>();
     public DbSet<TransactionLineTag> TransactionLineTags => Set<TransactionLineTag>();
+    public DbSet<TransactionDuplicateFlag> TransactionDuplicateFlags => Set<TransactionDuplicateFlag>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +29,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         ConfigureTag(modelBuilder.Entity<Tag>());
         ConfigureTransactionTag(modelBuilder.Entity<TransactionTag>());
         ConfigureTransactionLineTag(modelBuilder.Entity<TransactionLineTag>());
+        ConfigureTransactionDuplicateFlag(modelBuilder.Entity<TransactionDuplicateFlag>());
     }
 
     private static void ConfigureDocumentImport(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<DocumentImport> entity)
@@ -38,6 +40,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         entity.Property(import => import.Id).HasColumnName("id");
         entity.Property(import => import.ContentHash).HasColumnName("content_hash").HasMaxLength(64).IsRequired();
         entity.Property(import => import.ImportedAt).HasColumnName("imported_at").HasColumnType("timestamp with time zone");
+        entity.Property(import => import.Provider).HasColumnName("provider").HasConversion<string>().HasMaxLength(20).IsRequired();
         entity.HasIndex(import => import.ContentHash).IsUnique().HasDatabaseName("ix_document_imports_content_hash");
     }
 
@@ -99,13 +102,33 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         entity.HasIndex(transaction => transaction.CategoryId).HasDatabaseName("ix_transactions_category_id");
         entity.HasIndex(transaction => transaction.DocumentImportId).HasDatabaseName("ix_transactions_document_import_id");
         entity.HasIndex(transaction => transaction.ExternalReference).HasDatabaseName("ix_transactions_external_reference");
-        entity.HasIndex(transaction => new
-        {
-            transaction.TransactionDate,
-            transaction.Amount,
-            transaction.Direction,
-            transaction.ExternalReference
-        }).HasDatabaseName("ix_transactions_duplicate_detection");
+    }
+
+    private static void ConfigureTransactionDuplicateFlag(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TransactionDuplicateFlag> entity)
+    {
+        entity.ToTable("transaction_duplicate_flags", table =>
+            table.HasCheckConstraint("ck_transaction_duplicate_flags_not_self", "transaction_id <> matched_transaction_id"));
+        entity.HasKey(flag => flag.Id);
+        entity.Property(flag => flag.Id).HasColumnName("id");
+        entity.Property(flag => flag.TransactionId).HasColumnName("transaction_id");
+        entity.Property(flag => flag.MatchedTransactionId).HasColumnName("matched_transaction_id");
+        entity.Property(flag => flag.Reason).HasColumnName("reason").HasConversion<string>().HasMaxLength(30).IsRequired();
+        entity.Property(flag => flag.State).HasColumnName("state").HasConversion<string>().HasMaxLength(20).IsRequired();
+        entity.Property(flag => flag.SuggestedAt).HasColumnName("suggested_at").HasColumnType("timestamp with time zone");
+        entity.Property(flag => flag.DecidedAt).HasColumnName("decided_at").HasColumnType("timestamp with time zone");
+        entity.HasOne(flag => flag.Transaction)
+            .WithMany(transaction => transaction.DuplicateFlags)
+            .HasForeignKey(flag => flag.TransactionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(flag => flag.MatchedTransaction)
+            .WithMany(transaction => transaction.MatchedByDuplicateFlags)
+            .HasForeignKey(flag => flag.MatchedTransactionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasIndex(flag => flag.TransactionId)
+            .IsUnique()
+            .HasDatabaseName("ix_transaction_duplicate_flags_transaction_id");
+        entity.HasIndex(flag => flag.MatchedTransactionId)
+            .HasDatabaseName("ix_transaction_duplicate_flags_matched_transaction_id");
     }
 
     private static void ConfigureTransactionLine(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TransactionLine> entity)
@@ -200,6 +223,8 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000009"), Slug = "grocery", Name = "Grocery", Kind = CategoryKind.Expense },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000010"), Slug = "rent", Name = "Rent", Kind = CategoryKind.Expense },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000011"), Slug = "salary", Name = "Salary", Kind = CategoryKind.Income },
-        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000012"), Slug = "travel", Name = "Travel", Kind = CategoryKind.Expense }
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000012"), Slug = "travel", Name = "Travel", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000013"), Slug = "hundi", Name = "Hundi", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000014"), Slug = "fuel", Name = "Fuel", Kind = CategoryKind.Expense }
     ];
 }

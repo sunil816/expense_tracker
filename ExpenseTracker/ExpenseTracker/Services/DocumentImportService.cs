@@ -6,7 +6,9 @@ using Npgsql;
 
 namespace ExpenseTracker.Services;
 
-public sealed class DocumentImportService(IDbContextFactory<ExpenseTrackerDbContext> contextFactory)
+public sealed class DocumentImportService(
+    IDbContextFactory<ExpenseTrackerDbContext> contextFactory,
+    ITransactionDuplicateService duplicateService)
 {
     private const string ContentHashIndex = "ix_document_imports_content_hash";
 
@@ -16,6 +18,7 @@ public sealed class DocumentImportService(IDbContextFactory<ExpenseTrackerDbCont
         var documentImport = await context.DocumentImports
             .AsNoTracking()
             .Include(import => import.Transactions)
+            .ThenInclude(transaction => transaction.DuplicateFlags)
             .SingleOrDefaultAsync(import => import.ContentHash == contentHash, cancellationToken);
 
         return documentImport is null ? null : ToResult(documentImport, isDuplicate: true);
@@ -24,6 +27,7 @@ public sealed class DocumentImportService(IDbContextFactory<ExpenseTrackerDbCont
     public async Task<TransactionImportResult> SaveAsync(
         string contentHash,
         IReadOnlyList<ExtractedTransaction> extractedTransactions,
+        SourceProvider provider,
         CancellationToken cancellationToken)
     {
         var existing = await FindAsync(contentHash, cancellationToken);
@@ -32,19 +36,44 @@ public sealed class DocumentImportService(IDbContextFactory<ExpenseTrackerDbCont
             return existing;
         }
 
-        var documentImport = new DocumentImport
-        {
-            Id = Guid.NewGuid(),
-            ContentHash = contentHash,
-            ImportedAt = DateTimeOffset.UtcNow,
-            Transactions = ImportedTransactionFactory.Create(extractedTransactions)
-        };
+        var importedAt = DateTimeOffset.UtcNow;
 
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            var matches = await duplicateService.ClassifyAsync(provider, extractedTransactions, importedAt, cancellationToken);
+            var transactions = ImportedTransactionFactory.Create(extractedTransactions);
+            var documentImport = new DocumentImport
+            {
+                Id = Guid.NewGuid(),
+                ContentHash = contentHash,
+                ImportedAt = importedAt,
+                Provider = provider,
+                Transactions = transactions
+            };
+
+            for (var index = 0; index < transactions.Count; index++)
+            {
+                var match = matches[index];
+                if (match is null)
+                {
+                    continue;
+                }
+
+                transactions[index].DuplicateFlags.Add(new TransactionDuplicateFlag
+                {
+                    Id = Guid.NewGuid(),
+                    MatchedTransactionId = match.MatchedTransactionId,
+                    Reason = match.Reason,
+                    State = DuplicateFlagState.Suggested,
+                    SuggestedAt = importedAt
+                });
+            }
+
             context.DocumentImports.Add(documentImport);
             await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return ToResult(documentImport, isDuplicate: false);
         }
         catch (DbUpdateException exception) when (
@@ -59,11 +88,20 @@ public sealed class DocumentImportService(IDbContextFactory<ExpenseTrackerDbCont
         }
     }
 
+    public Task<TransactionImportResult> SaveAsync(
+        string contentHash,
+        IReadOnlyList<ExtractedTransaction> extractedTransactions,
+        CancellationToken cancellationToken) =>
+        SaveAsync(contentHash, extractedTransactions, SourceProvider.SuperMoney, cancellationToken);
+
     private static TransactionImportResult ToResult(DocumentImport documentImport, bool isDuplicate) =>
         new(
             documentImport.Id,
             isDuplicate,
             documentImport.ImportedAt,
+            documentImport.Provider,
+            documentImport.Transactions.Count,
+            documentImport.Transactions.Count(transaction => transaction.DuplicateFlags.Count > 0),
             documentImport.Transactions
                 .OrderBy(transaction => transaction.ImportPosition)
                 .Select(transaction => new SavedTransaction(
@@ -81,6 +119,16 @@ public sealed class DocumentImportService(IDbContextFactory<ExpenseTrackerDbCont
                     transaction.BalanceAfter,
                     transaction.CategoryId,
                     transaction.ReceiptUrl,
-                    transaction.LineExtractionStatus))
+                    transaction.LineExtractionStatus,
+                    transaction.DuplicateFlags
+                        .Select(flag => new DuplicateFlagDetails(
+                            flag.Id,
+                            flag.MatchedTransactionId,
+                            flag.Reason,
+                            flag.State,
+                            flag.SuggestedAt,
+                            flag.DecidedAt))
+                        .SingleOrDefault()))
                 .ToArray());
+
 }

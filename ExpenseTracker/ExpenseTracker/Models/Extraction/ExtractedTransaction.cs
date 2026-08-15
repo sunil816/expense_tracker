@@ -18,6 +18,9 @@ public sealed record TransactionImportResult(
     Guid ImportId,
     bool IsDuplicate,
     DateTimeOffset ImportedAt,
+    SourceProvider Provider,
+    int ImportedCount,
+    int FlaggedDuplicateCount,
     IReadOnlyList<SavedTransaction> Transactions);
 
 public sealed record SavedTransaction(
@@ -35,4 +38,13 @@ public sealed record SavedTransaction(
     decimal? BalanceAfter,
     Guid? CategoryId,
     string? ReceiptUrl,
-    LineExtractionStatus LineExtractionStatus);
+    LineExtractionStatus LineExtractionStatus,
+    DuplicateFlagDetails? DuplicateFlag);
+
+public sealed record DuplicateFlagDetails(
+    Guid FlagId,
+    Guid MatchedTransactionId,
+    DuplicateMatchReason Reason,
+    DuplicateFlagState State,
+    DateTimeOffset SuggestedAt,
+    DateTimeOffset? DecidedAt);

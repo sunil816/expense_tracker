@@ -171,6 +171,22 @@ Use these fields:
 
 The API requires HTTPS and returns a saved-import envelope with `importId`, `isDuplicate`, `importedAt`, and normalized transactions. A password-protected PDF is first decrypted by qpdf, then converted to an unprotected staged PDF for Docling. Payment rows not marked `SUCCESS` are ignored. A valid document without a supported transaction table returns `422 Unprocessable Entity` and creates no database rows. Re-uploading byte-identical content returns the existing import without repeating PDF preparation or extraction.
 
+## Build and publish the frontend
+
+The frontend is a same-origin React SPA. Build it before publishing the ASP.NET application:
+
+```powershell
+Set-Location frontend
+npm ci
+npm test
+npm run build
+Set-Location ..
+dotnet publish ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj -c Release -o publish
+if (-not (Test-Path publish/wwwroot/index.html)) { throw 'Frontend build is missing from publish/wwwroot.' }
+```
+
+The Vite build writes to `ExpenseTracker/ExpenseTracker/wwwroot`, which the Web SDK includes in the publish output. Verify the deployed site root and a deep link such as `/transactions`; verify an unknown `/api/not-found` returns a 404 ProblemDetails response rather than SPA HTML. Production redirects HTTP to HTTPS and enables HSTS.
+
 ## Configuration checklist
 
 Before releasing:
@@ -184,6 +200,8 @@ Before releasing:
 - Docling is reachable from the API host;
 - `DocumentExtraction:BaseUrl` is not left at a development-only address;
 - HTTPS is configured for the API;
+- `frontend/npm ci`, `npm test`, and `npm run build` complete successfully;
+- `publish/wwwroot/index.html` exists after `dotnet publish`;
 - temporary-directory permissions allow cleanup;
 - production secrets and passwords are supplied at runtime, not committed to JSON files;
 - upload, response, timeout, polling, and concurrency limits match the deployment capacity.

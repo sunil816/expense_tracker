@@ -24,7 +24,9 @@ builder.Services.AddOptions<DocumentExtractionOptions>()
 
 var extractionOptions = extractionSection.Get<DocumentExtractionOptions>() ?? new DocumentExtractionOptions();
 extractionOptions.ConversionOptions = DocumentExtractionOptions.ReadConversionOptions(extractionSection.GetSection(nameof(DocumentExtractionOptions.ConversionOptions)));
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = extractionOptions.MaximumFileSizeBytes);
+const long multipartHeadroomBytes = 1024 * 1024;
+var maximumMultipartBodySize = checked(extractionOptions.MaximumFileSizeBytes + multipartHeadroomBytes);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumMultipartBodySize);
 
 builder.Services.AddOptions<PdfDecryptionOptions>()
 	.Bind(builder.Configuration.GetSection(PdfDecryptionOptions.SectionName))
@@ -32,7 +34,7 @@ builder.Services.AddOptions<PdfDecryptionOptions>()
 	.ValidateOnStart();
 builder.Services.Configure<FormOptions>(options =>
 {
-	options.MultipartBodyLengthLimit = extractionOptions.MaximumFileSizeBytes;
+	options.MultipartBodyLengthLimit = maximumMultipartBodySize;
 	options.ValueLengthLimit = checked((int)Math.Min(extractionOptions.MaximumFileSizeBytes, int.MaxValue));
 });
 
@@ -51,6 +53,7 @@ builder.Services.AddSingleton<IPdfPreparationService, PdfPreparationService>();
 builder.Services.AddSingleton<IDocumentExtractionProvider, DoclingDocumentExtractionProvider>();
 builder.Services.AddSingleton<TransactionResultParser>();
 builder.Services.AddScoped<DocumentImportService>();
+builder.Services.AddScoped<ITransactionDuplicateService, TransactionDuplicateService>();
 builder.Services.AddScoped<DocumentExtractionService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddScoped<TagService>();
@@ -62,6 +65,13 @@ builder.Services.AddSingleton(new SemaphoreSlim(extractionOptions.MaximumConcurr
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
+if (!app.Environment.IsDevelopment())
+{
+	app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
 if (app.Environment.IsDevelopment())
 {
 	await using var scope = app.Services.CreateAsyncScope();

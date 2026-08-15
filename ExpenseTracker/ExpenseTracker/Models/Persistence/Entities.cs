@@ -12,6 +12,13 @@ public enum TransactionOrigin
     Manual
 }
 
+public enum SourceProvider
+{
+    SuperMoney,
+    Instamart,
+    BankStatement
+}
+
 public enum SourceDocumentFormat
 {
     PaymentExport,
@@ -54,11 +61,25 @@ public enum TagAssignmentSource
     Manual
 }
 
+public enum DuplicateMatchReason
+{
+    ExternalReference,
+    Composite
+}
+
+public enum DuplicateFlagState
+{
+    Suggested,
+    Confirmed,
+    Rejected
+}
+
 public sealed class DocumentImport
 {
     public Guid Id { get; set; }
     public required string ContentHash { get; set; }
     public DateTimeOffset ImportedAt { get; set; }
+    public SourceProvider Provider { get; set; }
     public List<ExpenseTransaction> Transactions { get; set; } = [];
 }
 
@@ -97,6 +118,21 @@ public sealed class ExpenseTransaction
     public LineExtractionStatus LineExtractionStatus { get; set; }
     public List<TransactionLine> Lines { get; set; } = [];
     public List<TransactionTag> TagAssignments { get; set; } = [];
+    public List<TransactionDuplicateFlag> DuplicateFlags { get; set; } = [];
+    public List<TransactionDuplicateFlag> MatchedByDuplicateFlags { get; set; } = [];
+}
+
+public sealed class TransactionDuplicateFlag
+{
+    public Guid Id { get; set; }
+    public Guid TransactionId { get; set; }
+    public ExpenseTransaction Transaction { get; set; } = null!;
+    public Guid MatchedTransactionId { get; set; }
+    public ExpenseTransaction MatchedTransaction { get; set; } = null!;
+    public DuplicateMatchReason Reason { get; set; }
+    public DuplicateFlagState State { get; set; }
+    public DateTimeOffset SuggestedAt { get; set; }
+    public DateTimeOffset? DecidedAt { get; set; }
 }
 
 public sealed class TransactionLine

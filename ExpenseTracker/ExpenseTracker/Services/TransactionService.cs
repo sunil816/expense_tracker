@@ -120,6 +120,115 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
         return await LoadDetailAsync(context, transactionId, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TransactionSummaryResponse>> FindMatchingAsync(
+        MatchingTransactionQuery query,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var description = query.Description.Trim();
+        var transactions = context.Transactions
+            .AsNoTracking()
+            .Where(transaction => transaction.Description == description);
+
+        if (query.ExcludeId is { } excludeId)
+        {
+            transactions = transactions.Where(transaction => transaction.Id != excludeId);
+        }
+
+        return await transactions
+            .OrderByDescending(transaction => transaction.TransactionDate)
+            .ThenBy(transaction => transaction.Id)
+            .Select(transaction => new TransactionSummaryResponse(
+                transaction.Id,
+                transaction.Origin,
+                transaction.TransactionDate,
+                transaction.Description,
+                transaction.AccountLabel,
+                transaction.ExternalReference,
+                transaction.Direction,
+                transaction.Amount,
+                transaction.Currency,
+                transaction.CategoryId,
+                transaction.ReceiptUrl,
+                transaction.LineExtractionStatus,
+                transaction.Lines.Any()))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<(TransactionUpdateOutcome Outcome, int UpdatedCount)> UpdateCategoryForDescriptionAsync(
+        BulkCategoryRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        if (request.CategoryId is { } categoryId
+            && !await context.Categories.AnyAsync(category => category.Id == categoryId, cancellationToken))
+        {
+            return (TransactionUpdateOutcome.UnknownCategory, 0);
+        }
+
+        var description = request.Description.Trim();
+        var transactions = await context.Transactions
+            .Where(transaction => transaction.Description == description)
+            .ToListAsync(cancellationToken);
+        foreach (var transaction in transactions)
+        {
+            transaction.CategoryId = request.CategoryId;
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+        return (TransactionUpdateOutcome.Updated, transactions.Count);
+    }
+
+    public async Task<TransactionTagUpdateResult> AddTagAsync(Guid transactionId, Guid tagId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        if (!await context.Transactions.AnyAsync(transaction => transaction.Id == transactionId, cancellationToken))
+        {
+            return new TransactionTagUpdateResult(TransactionTagUpdateOutcome.NotFound, null);
+        }
+
+        if (!await context.Tags.AnyAsync(tag => tag.Id == tagId, cancellationToken))
+        {
+            return new TransactionTagUpdateResult(TransactionTagUpdateOutcome.TagNotFound, null);
+        }
+
+        var assignment = await context.TransactionTags
+            .SingleOrDefaultAsync(candidate => candidate.TransactionId == transactionId && candidate.TagId == tagId, cancellationToken);
+        if (assignment is null)
+        {
+            context.TransactionTags.Add(new TransactionTag
+            {
+                TransactionId = transactionId,
+                TagId = tagId,
+                State = TagAssignmentState.Confirmed,
+                Source = TagAssignmentSource.Manual,
+                DecidedAt = DateTimeOffset.UtcNow
+            });
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        return new TransactionTagUpdateResult(
+            assignment is null ? TransactionTagUpdateOutcome.Updated : TransactionTagUpdateOutcome.AlreadyAssigned,
+            await LoadDetailAsync(context, transactionId, cancellationToken));
+    }
+
+    public async Task<TransactionTagUpdateResult> RemoveTagAsync(Guid transactionId, Guid tagId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var assignment = await context.TransactionTags
+            .SingleOrDefaultAsync(candidate => candidate.TransactionId == transactionId && candidate.TagId == tagId, cancellationToken);
+        if (assignment is null)
+        {
+            return new TransactionTagUpdateResult(TransactionTagUpdateOutcome.NotFound, null);
+        }
+
+        context.TransactionTags.Remove(assignment);
+        await context.SaveChangesAsync(cancellationToken);
+        return new TransactionTagUpdateResult(
+            TransactionTagUpdateOutcome.Updated,
+            await LoadDetailAsync(context, transactionId, cancellationToken));
+    }
+
     /// <summary>Replaces the user-editable columns; provenance, currency, lines and tags are left untouched.</summary>
     public async Task<TransactionUpdateResult> UpdateAsync(
         Guid transactionId,
