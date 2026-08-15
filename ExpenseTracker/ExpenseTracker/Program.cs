@@ -56,6 +56,7 @@ builder.Services.AddScoped<DocumentImportService>();
 builder.Services.AddScoped<ITransactionDuplicateService, TransactionDuplicateService>();
 builder.Services.AddScoped<DocumentExtractionService>();
 builder.Services.AddScoped<TransactionService>();
+builder.Services.AddScoped<DuplicateReviewService>();
 builder.Services.AddScoped<TagService>();
 builder.Services.AddScoped<CategoryService>();
 builder.Services.AddScoped<ReportService>();

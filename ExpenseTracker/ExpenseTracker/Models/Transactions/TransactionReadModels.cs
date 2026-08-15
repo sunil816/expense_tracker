@@ -65,6 +65,40 @@ public sealed record DuplicateFlagResponse(
     DateTimeOffset SuggestedAt,
     DateTimeOffset? DecidedAt);
 
+public sealed class DuplicateReviewQuery
+{
+    public DuplicateFlagState? State { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int Page { get; set; } = 1;
+
+    [Range(1, 200)]
+    public int PageSize { get; set; } = 50;
+}
+
+public sealed record DuplicateReviewTransactionResponse(
+    Guid Id,
+    TransactionOrigin Origin,
+    DateOnly TransactionDate,
+    string Description,
+    string? AccountLabel,
+    string? ExternalReference,
+    TransactionDirection Direction,
+    decimal Amount,
+    string Currency,
+    SourceDocumentFormat? SourceFormat);
+
+public sealed record DuplicateReviewItemResponse(
+    DuplicateFlagResponse Flag,
+    DuplicateReviewTransactionResponse FlaggedTransaction,
+    DuplicateReviewTransactionResponse MatchedTransaction);
+
+public sealed record DuplicateReviewPageResponse(
+    IReadOnlyList<DuplicateReviewItemResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
 public sealed record TransactionLineResponse(
     Guid Id,
     int Position,

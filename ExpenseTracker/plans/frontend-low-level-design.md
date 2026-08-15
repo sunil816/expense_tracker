@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Define the module-level design of the React frontend described in `react-frontend-ui.md`: exact TypeScript contracts, component props and state ownership, data flow, aggregation algorithms, and test cases. The backend is complete; this document changes no API. A section is implementable on its own once its dependencies (listed in Implementation Order) exist.
+Define the module-level design of the React frontend described in `react-frontend-ui.md`: exact TypeScript contracts, component props and state ownership, data flow, aggregation algorithms, and test cases. A section is implementable on its own once its dependencies (listed in Implementation Order) exist.
 
 ## Decisions
 
-- **No state library, no data-fetching library.** Three pages, one user, no shared mutable state beyond the category list. Each page owns its server state with `useState`/`useEffect`; the category list uses a module-level promise cache. Adding React Query or Zustand would be dead weight at this scale.
+- **No state library, no data-fetching library.** Each page owns its server state with `useState`/`useEffect`; the category list uses a module-level promise cache. Adding React Query or Zustand would be dead weight at this scale.
 - **URL search params are the source of truth** for transaction filters and dashboard range. Component state never duplicates them; handlers write to the URL and re-render follows.
 - **The API layer returns typed data, throws `ApiError`, or propagates `AbortError` on cancellation — nothing else.** Network `TypeError`s are wrapped into `ApiError(0, 'Network error')`; components never see `fetch`, `Response`, ProblemDetails JSON, or raw transport errors.
 - **All chart math is pure functions** in `lib/aggregate.ts` operating on `SpendingRow[]` → chart-ready series. Recharts components stay declarative and logic-free; the pure layer is the Vitest surface.
@@ -19,6 +19,7 @@ flowchart TD
     subgraph pages
         UP[UploadPage] --> IMP[api/imports]
         TP[TransactionsPage] --> TX[api/transactions]
+        DR[DuplicateReviewPage] --> DF[api/duplicateFlags]
         TP --> CAT[api/categories]
         DP[DashboardPage] --> REP[api/reports]
         DP --> CAT
@@ -280,6 +281,7 @@ Mapping table (status + exact backend titles; first match wins):
 | --- | --- | --- |
 | `/` | DashboardPage | `granularity` (`week`\|`month`, default `month`), `from`, `to` (default: server defaults, i.e. params omitted; custom range capped at 24 months) |
 | `/transactions` | TransactionsPage | `from`, `to`, `direction`, `categoryId`, `uncategorized`, `origin`, `sourceFormat`, `page` |
+| `/duplicates` | DuplicateReviewPage | `state` (`Suggested`/`Confirmed`/`Rejected`; omitted means All), `page` |
 | `/transactions/new` | ManualTransactionPage | none (Back preserves the list's search params via location state / history back) |
 | `/transactions/:id` | TransactionDetailPage | none (same back behavior) |
 | `/upload` | UploadPage | none |
@@ -333,6 +335,15 @@ idle ──submit──▶ uploading ──2xx──▶ success(ImportResult)
 - A "Details" link per row navigates to `/transactions/:id` (origin, source format, balance, lines table, tag chips with state/source badges). "Add transaction" navigates to `/transactions/new`; on 201 it navigates back and the list refetches.
 - `/transactions/new` form: client-side mirrors of the DataAnnotations rules; on 400, `ApiError.errors` maps to per-field messages plus a summary, and focus moves to the first invalid field.
 
+### DuplicateReviewPage
+
+- On mount and whenever `state` or `page` search params change: `listDuplicateReviews({ state, page, pageSize: 25 }, signal)` → render. The request uses an `AbortController` aborted on param change/unmount.
+- The page defaults its URL state to `state=Suggested`; the omitted `state` URL value is the explicit All/history view. Status controls are URL-backed and expose Suggested, All, Confirmed, and Kept separate.
+- States: loading comparison skeletons; empty suggested queue; empty history filter; inline retry panel on `ApiError`; per-row saving; polite success/error announcement.
+- Each queue row compares the flagged transaction with the matched original, shows a copy-mapped reason (`Matched by reference` or `Matched by details`), signed amount/date/account/reference fields, and separate detail links. Suggested rows provide individual Confirm duplicate and Keep both actions; terminal rows show status text without actions.
+- After a decision, refetch the active queue query so `totalCount` and pagination remain correct. If the current page becomes empty and is not page 1, move back one page and refetch.
+- At 375 px, comparison columns stack, relation and actions become full-width, filters remain horizontally scrollable without page overflow, and all controls retain 44 px minimum touch targets.
+
 ### DashboardPage
 
 - Whenever `granularity`/`from`/`to` params change: `getSpendingReport(..., signal)` → run the three aggregate functions → render charts. Same staleness discipline as Transactions: abort the in-flight request on param change/unmount and gate rendering on a request-generation check. `report.from`/`report.to` echo the resolved range back into the picker display.
@@ -363,7 +374,8 @@ Accessibility invariants enforced by components: semantic landmarks and one `h1`
 4. `lib/` modules + Vitest (no UI needed; suite green before any page).
 5. TransactionsPage (+ Table/cards, CategorySelect, refetch-on-mutation) + ManualTransactionPage + TransactionDetailPage — proves list/PUT/POST through the proxy.
 6. UploadPage (dropzone, pre-checks, navigation guard, cancel, error map, ImportResultTable) — proves the long-request paths.
-7. DashboardPage (+ RangePicker with 24-month cap, sign-aware stacked bars, pie + refund footnote, chart data tables).
-8. Backend hardening (`UseHttpsRedirection` + `UseHsts` outside Development; request-size limits raised to `MaximumFileSizeBytes` + 1 MB multipart headroom); prod build into `wwwroot`; README/DEPLOYMENT updates incl. the release script that asserts `wwwroot/index.html` exists.
+7. DuplicateReviewPage + `/api/duplicate-flags` read contract (comparison queue, status filters, individual decisions, pagination).
+8. DashboardPage (+ RangePicker with 24-month cap, sign-aware stacked bars, pie + refund footnote, chart data tables).
+9. Backend hardening (`UseHttpsRedirection` + `UseHsts` outside Development; request-size limits raised to `MaximumFileSizeBytes` + 1 MB multipart headroom); prod build into `wwwroot`; README/DEPLOYMENT updates incl. the release script that asserts `wwwroot/index.html` exists.
 
 Verification for each step and the final browser checklist are in `react-frontend-ui.md`.

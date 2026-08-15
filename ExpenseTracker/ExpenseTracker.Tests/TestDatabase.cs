@@ -29,6 +29,7 @@ internal sealed class TestDatabase(SqliteConnection connection, ServiceProvider 
         serviceCollection.AddScoped<DocumentImportService>();
         serviceCollection.AddScoped<ITransactionDuplicateService, TransactionDuplicateService>();
         serviceCollection.AddScoped<TransactionService>();
+        serviceCollection.AddScoped<DuplicateReviewService>();
         serviceCollection.AddScoped<TagService>();
         serviceCollection.AddScoped<CategoryService>();
         serviceCollection.AddScoped<ReportService>();

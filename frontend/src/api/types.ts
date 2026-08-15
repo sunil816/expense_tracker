@@ -24,6 +24,10 @@ export interface TransactionWrite { transactionDate: string; description: string
 export interface SpendingRow { periodStart: string; categoryId: string | null; categoryName: string | null; categoryKind: CategoryKind | null; direction: Direction; total: number; count: number }
 export interface SpendingReport { granularity: Granularity; from: string; to: string; rows: SpendingRow[] }
 export interface DuplicateFlagDetails { flagId: string; matchedTransactionId: string; reason: DuplicateMatchReason; state: DuplicateFlagState; suggestedAt: string; decidedAt: string | null }
+export interface DuplicateReviewQuery { state?: DuplicateFlagState; page?: number; pageSize?: number }
+export interface DuplicateReviewTransaction { id: string; origin: Origin; transactionDate: string; description: string; accountLabel: string | null; externalReference: string | null; direction: Direction; amount: number; currency: string; sourceFormat: SourceFormat | null }
+export interface DuplicateReviewItem { flag: DuplicateFlagDetails & { transactionId: string }; flaggedTransaction: DuplicateReviewTransaction; matchedTransaction: DuplicateReviewTransaction }
+export interface DuplicateReviewPage { items: DuplicateReviewItem[]; page: number; pageSize: number; totalCount: number }
 export interface SavedTransaction { id: string; importPosition: number; sourceSequence: number | null; sourceFormat: SourceFormat; transactionDate: string; description: string; accountLabel: string | null; externalReference: string | null; direction: Direction; amount: number; currency: string; balanceAfter: number | null; categoryId: string | null; receiptUrl: string | null; lineExtractionStatus: LineExtractionStatus; duplicateFlag: DuplicateFlagDetails | null }
 export interface ImportResult { importId: string; isDuplicate: boolean; importedAt: string; provider: SourceProvider; importedCount: number; flaggedDuplicateCount: number; transactions: SavedTransaction[] }
 export interface TransactionListParams { from?: string; to?: string; direction?: Direction; categoryId?: string; uncategorized?: boolean; origin?: Origin; sourceFormat?: SourceFormat; page?: number; pageSize?: number }
