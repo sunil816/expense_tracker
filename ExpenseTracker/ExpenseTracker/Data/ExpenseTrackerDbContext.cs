@@ -227,6 +227,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000011"), Slug = "salary", Name = "Salary", Kind = CategoryKind.Income },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000012"), Slug = "travel", Name = "Travel", Kind = CategoryKind.Expense },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000013"), Slug = "hundi", Name = "Hundi", Kind = CategoryKind.Expense },
-        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000014"), Slug = "fuel", Name = "Fuel", Kind = CategoryKind.Expense }
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000014"), Slug = "fuel", Name = "Fuel", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000015"), Slug = "interest-income", Name = "Interest Income", Kind = CategoryKind.Income }
     ];
 }
