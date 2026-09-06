@@ -33,6 +33,7 @@ public sealed record SavedTransaction(
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
+    TransactionKind Kind,
     decimal Amount,
     string Currency,
     decimal? BalanceAfter,

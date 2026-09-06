@@ -18,6 +18,8 @@ public sealed class ManualTransactionRequest
     [Required]
     public TransactionDirection? Direction { get; set; }
 
+    public TransactionKind? Kind { get; set; }
+
     [Range(typeof(decimal), "0", "9999999999999999.99")]
     public decimal Amount { get; set; }
 
@@ -42,6 +44,7 @@ public sealed record ManualTransactionResponse(
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
+    TransactionKind Kind,
     decimal Amount,
     string Currency,
     Guid? CategoryId,

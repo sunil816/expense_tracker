@@ -32,6 +32,13 @@ public enum TransactionDirection
     Credit
 }
 
+public enum TransactionKind
+{
+    Expense,
+    Income,
+    Transfer
+}
+
 public enum LineExtractionStatus
 {
     NotApplicable,
@@ -110,6 +117,7 @@ public sealed class ExpenseTransaction
     public string? AccountLabel { get; set; }
     public string? ExternalReference { get; set; }
     public TransactionDirection Direction { get; set; }
+    public TransactionKind Kind { get; set; }
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "INR";
     public decimal? BalanceAfter { get; set; }

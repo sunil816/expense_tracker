@@ -45,6 +45,7 @@ public sealed class DuplicateReviewService(IDbContextFactory<ExpenseTrackerDbCon
                     flag.Transaction.AccountLabel,
                     flag.Transaction.ExternalReference,
                     flag.Transaction.Direction,
+                    flag.Transaction.Kind,
                     flag.Transaction.Amount,
                     flag.Transaction.Currency,
                     flag.Transaction.SourceFormat),
@@ -56,6 +57,7 @@ public sealed class DuplicateReviewService(IDbContextFactory<ExpenseTrackerDbCon
                     flag.MatchedTransaction.AccountLabel,
                     flag.MatchedTransaction.ExternalReference,
                     flag.MatchedTransaction.Direction,
+                    flag.MatchedTransaction.Kind,
                     flag.MatchedTransaction.Amount,
                     flag.MatchedTransaction.Currency,
                     flag.MatchedTransaction.SourceFormat)))

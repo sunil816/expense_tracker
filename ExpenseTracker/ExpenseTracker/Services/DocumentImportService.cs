@@ -114,6 +114,7 @@ public sealed class DocumentImportService(
                     transaction.AccountLabel,
                     transaction.ExternalReference,
                     transaction.Direction,
+                    transaction.Kind,
                     transaction.Amount,
                     transaction.Currency,
                     transaction.BalanceAfter,

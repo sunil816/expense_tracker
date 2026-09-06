@@ -18,6 +18,8 @@ public sealed class TransactionUpdateRequest
     [Required]
     public TransactionDirection? Direction { get; set; }
 
+    public TransactionKind? Kind { get; set; }
+
     [Range(typeof(decimal), "0", "9999999999999999.99")]
     public decimal Amount { get; set; }
 

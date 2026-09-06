@@ -11,6 +11,8 @@ public sealed class TransactionListQuery
 
     public TransactionDirection? Direction { get; set; }
 
+    public TransactionKind? Kind { get; set; }
+
     public Guid? CategoryId { get; set; }
 
     public bool? Uncategorized { get; set; }
@@ -35,6 +37,7 @@ public sealed record TransactionSummaryResponse(
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
+    TransactionKind Kind,
     decimal Amount,
     string Currency,
     Guid? CategoryId,
@@ -84,6 +87,7 @@ public sealed record DuplicateReviewTransactionResponse(
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
+    TransactionKind Kind,
     decimal Amount,
     string Currency,
     SourceDocumentFormat? SourceFormat);
@@ -118,6 +122,7 @@ public sealed record TransactionDetailResponse(
     string? AccountLabel,
     string? ExternalReference,
     TransactionDirection Direction,
+    TransactionKind Kind,
     decimal Amount,
     string Currency,
     Guid? CategoryId,

@@ -18,6 +18,7 @@ public static class ImportedTransactionFactory
             AccountLabel = transaction.AccountLabel,
             ExternalReference = transaction.ExternalReference,
             Direction = transaction.Direction,
+            Kind = TransactionKindClassifier.Classify(transaction.Description, transaction.Direction),
             Amount = transaction.Amount,
             BalanceAfter = transaction.BalanceAfter,
             ReceiptUrl = transaction.ReceiptUrl,

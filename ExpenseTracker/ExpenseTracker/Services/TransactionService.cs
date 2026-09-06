@@ -29,8 +29,9 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             AccountLabel = NullIfWhiteSpace(request.AccountLabel),
             ExternalReference = NullIfWhiteSpace(request.ExternalReference),
             Direction = request.Direction!.Value,
+            Kind = request.Kind ?? DefaultKind(request.Direction.Value),
             Amount = request.Amount,
-            CategoryId = request.CategoryId,
+            CategoryId = request.Kind == TransactionKind.Transfer ? null : request.CategoryId,
             ReceiptUrl = NullIfWhiteSpace(request.ReceiptUrl),
             LineExtractionStatus = LineExtractionStatus.NotApplicable
         };
@@ -46,6 +47,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             transaction.AccountLabel,
             transaction.ExternalReference,
             transaction.Direction,
+            transaction.Kind,
             transaction.Amount,
             transaction.Currency,
             transaction.CategoryId,
@@ -70,6 +72,11 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
         if (query.Direction is { } direction)
         {
             transactions = transactions.Where(transaction => transaction.Direction == direction);
+        }
+
+        if (query.Kind is { } kind)
+        {
+            transactions = transactions.Where(transaction => transaction.Kind == kind);
         }
 
         if (query.Uncategorized is true)
@@ -106,6 +113,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 transaction.AccountLabel,
                 transaction.ExternalReference,
                 transaction.Direction,
+                transaction.Kind,
                 transaction.Amount,
                 transaction.Currency,
                 transaction.CategoryId,
@@ -150,6 +158,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 transaction.AccountLabel,
                 transaction.ExternalReference,
                 transaction.Direction,
+                transaction.Kind,
                 transaction.Amount,
                 transaction.Currency,
                 transaction.CategoryId,
@@ -173,6 +182,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
         var description = request.Description.Trim();
         var transactions = await context.Transactions
             .Where(transaction => transaction.Description == description)
+            .Where(transaction => transaction.Kind != TransactionKind.Transfer)
             .ToListAsync(cancellationToken);
         foreach (var transaction in transactions)
         {
@@ -291,10 +301,11 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
         transaction.Description = request.Description.Trim();
         transaction.Note = NullIfWhiteSpace(request.Note);
         transaction.Direction = request.Direction!.Value;
+        transaction.Kind = request.Kind ?? DefaultKind(request.Direction.Value);
         transaction.Amount = request.Amount;
         transaction.AccountLabel = NullIfWhiteSpace(request.AccountLabel);
         transaction.ExternalReference = NullIfWhiteSpace(request.ExternalReference);
-        transaction.CategoryId = request.CategoryId;
+        transaction.CategoryId = transaction.Kind == TransactionKind.Transfer ? null : request.CategoryId;
         transaction.ReceiptUrl = NullIfWhiteSpace(request.ReceiptUrl);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -323,6 +334,7 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             transaction.AccountLabel,
             transaction.ExternalReference,
             transaction.Direction,
+            transaction.Kind,
             transaction.Amount,
             transaction.Currency,
             transaction.CategoryId,
@@ -357,6 +369,9 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 assignment.Source,
                 assignment.DecidedAt))
             .OrderBy(tag => tag.Name)];
+
+    private static TransactionKind DefaultKind(TransactionDirection direction) =>
+        direction == TransactionDirection.Credit ? TransactionKind.Income : TransactionKind.Expense;
 
     private static DuplicateFlagResponse ToDuplicateFlagResponse(TransactionDuplicateFlag flag) =>
         new(flag.Id, flag.TransactionId, flag.MatchedTransactionId, flag.Reason, flag.State, flag.SuggestedAt, flag.DecidedAt);

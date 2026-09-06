@@ -176,6 +176,25 @@ public sealed class SpendingReportTests
         Assert.Equal(1, row.Count);
     }
 
+    [Fact]
+    public async Task TransfersAreExcludedFromReportTotals()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var context = await database.CreateContextAsync())
+        {
+            var transfer = Manual(new DateOnly(2026, 8, 3), TransactionDirection.Debit, 500m, null);
+            transfer.Kind = TransactionKind.Transfer;
+            context.Transactions.AddRange(transfer, Manual(new DateOnly(2026, 8, 4), TransactionDirection.Debit, 40m, FoodCategoryId));
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<ReportService>();
+        var result = await service.GetSpendingAsync(SpendingGranularity.Month, new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31), CancellationToken.None);
+
+        var row = Assert.Single(result.Report!.Rows);
+        Assert.Equal(40m, row.Total);
+    }
+
     private static ExpenseTransaction Manual(DateOnly date, TransactionDirection direction, decimal amount, Guid? categoryId) =>
         new()
         {
