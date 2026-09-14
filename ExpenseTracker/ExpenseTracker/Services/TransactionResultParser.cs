@@ -8,7 +8,8 @@ namespace ExpenseTracker.Services;
 public sealed class TransactionResultParser
 {
     private static readonly string[] PaymentHeaders = ["Name", "Bank", "Amount", "Date", "Status"];
-    private static readonly string[] StatementHeaders = ["#", "Date", "Description", "Chq/Ref. No.", "Withdrawal (Dr.)", "Deposit (Cr.)", "Balance"];
+    private static readonly string[] KotakSavingsStatementHeaders = ["#", "Date", "Description", "Chq/Ref. No.", "Withdrawal (Dr.)", "Deposit (Cr.)", "Balance"];
+    private static readonly string[] IciciSavingsStatementHeaders = ["DATE", "MODE**", "PARTICULARS", "DEPOSITS", "WITHDRAWALS", "BALANCE"];
     private static readonly string[] OrderHeaders = ["Date / Time", "Order ID", "Pod Name", "Amount", "View"];
 
     public IReadOnlyList<ExtractedTransaction> Parse(byte[] body) =>
@@ -172,7 +173,7 @@ public sealed class TransactionResultParser
             var headers = values.Length switch
             {
                 5 when IsTransactionRow(PaymentHeaders, values) => PaymentHeaders,
-                7 when IsTransactionRow(StatementHeaders, values) => StatementHeaders,
+                7 when IsTransactionRow(KotakSavingsStatementHeaders, values) => KotakSavingsStatementHeaders,
                 _ => null
             };
             if (headers is null)
@@ -251,9 +252,15 @@ public sealed class TransactionResultParser
             return true;
         }
 
-        if (Matches(values, StatementHeaders))
+        if (Matches(values, KotakSavingsStatementHeaders))
         {
-            headers = StatementHeaders;
+            headers = KotakSavingsStatementHeaders;
+            return true;
+        }
+
+        if (Matches(values, IciciSavingsStatementHeaders))
+        {
+            headers = IciciSavingsStatementHeaders;
             return true;
         }
 
@@ -314,7 +321,7 @@ public sealed class TransactionResultParser
             return true;
         }
 
-        if (ReferenceEquals(headers, StatementHeaders))
+        if (ReferenceEquals(headers, KotakSavingsStatementHeaders))
         {
             if (!int.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out var sequence)
                 || !DateOnly.TryParseExact(values[1], "dd MMM yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
@@ -336,6 +343,32 @@ public sealed class TransactionResultParser
                 NullIfWhiteSpace(values[3]),
                 withdrawal.HasValue ? TransactionDirection.Debit : TransactionDirection.Credit,
                 Math.Abs(withdrawal ?? deposit!.Value),
+                balance,
+                null);
+            return true;
+        }
+
+        if (ReferenceEquals(headers, IciciSavingsStatementHeaders))
+        {
+            if (!DateOnly.TryParseExact(values[0], ["dd-MM-yyyy", "d-M-yyyy", "dd/MM/yyyy", "d/M/yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+                || string.IsNullOrWhiteSpace(values[2])
+                || !TryParseOptionalAmount(values[3], out var deposit)
+                || !TryParseOptionalAmount(values[4], out var withdrawal)
+                || deposit.HasValue == withdrawal.HasValue
+                || !decimal.TryParse(values[5], NumberStyles.Number, CultureInfo.InvariantCulture, out var balance))
+            {
+                return false;
+            }
+
+            transaction = new(
+                null,
+                SourceDocumentFormat.BankStatement,
+                date,
+                values[2].Trim(),
+                null,
+                null,
+                deposit.HasValue ? TransactionDirection.Credit : TransactionDirection.Debit,
+                Math.Abs(deposit ?? withdrawal!.Value),
                 balance,
                 null);
             return true;

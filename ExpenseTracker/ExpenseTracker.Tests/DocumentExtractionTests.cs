@@ -260,6 +260,48 @@ public sealed class DocumentExtractionTests
                 Assert.Equal(16_966.12m, transaction.BalanceAfter);
         }
 
+            [Fact]
+            public void ParserMapsAlternateBankStatementTables()
+            {
+                var body = System.Text.Encoding.UTF8.GetBytes("""
+                    {
+                        "document": {
+                            "json_content": {
+                                "tables": [{
+                                    "data": {
+                                        "grid": [
+                                            [{"text":"DATE"},{"text":"MODE**"},{"text":"PARTICULARS"},{"text":"DEPOSITS"},{"text":"WITHDRAWALS"},{"text":"BALANCE"}],
+                                            [{"text":"01-04-2026"},{"text":"NEFT"},{"text":"Salary"},{"text":"15,000.00"},{"text":""},{"text":"16,966.12"}],
+                                            [{"text":"02-04-2026"},{"text":"UPI"},{"text":"Cafe"},{"text":""},{"text":"250.00"},{"text":"16,716.12"}]
+                                        ]
+                                    }
+                                }]
+                            },
+                            "md_content": null
+                        }
+                    }
+                    """);
+
+                var transactions = new TransactionResultParser().Parse(body);
+
+                Assert.Collection(
+                    transactions,
+                    transaction =>
+                    {
+                        Assert.Equal("Salary", transaction.Description);
+                        Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                        Assert.Equal(15_000m, transaction.Amount);
+                        Assert.Equal(16_966.12m, transaction.BalanceAfter);
+                    },
+                    transaction =>
+                    {
+                        Assert.Equal("Cafe", transaction.Description);
+                        Assert.Equal(TransactionDirection.Debit, transaction.Direction);
+                        Assert.Equal(250m, transaction.Amount);
+                        Assert.Equal(16_716.12m, transaction.BalanceAfter);
+                    });
+            }
+
             [Theory]
             [InlineData("output1.json", 368)]
             [InlineData("output2.txt", 51)]
