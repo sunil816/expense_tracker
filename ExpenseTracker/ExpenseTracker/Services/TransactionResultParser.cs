@@ -10,6 +10,8 @@ public sealed class TransactionResultParser
     private static readonly string[] PaymentHeaders = ["Name", "Bank", "Amount", "Date", "Status"];
     private static readonly string[] KotakSavingsStatementHeaders = ["#", "Date", "Description", "Chq/Ref. No.", "Withdrawal (Dr.)", "Deposit (Cr.)", "Balance"];
     private static readonly string[] IciciSavingsStatementHeaders = ["DATE", "MODE**", "PARTICULARS", "DEPOSITS", "WITHDRAWALS", "BALANCE"];
+    private static readonly string[] SbiSavingsCreditDebitStatementHeaders = ["Date", "Transaction Reference", "Ref.No./Chq.No.", "Credit", "Debit", "Balance"];
+    private static readonly string[] SbiSavingsRepeatedReferenceStatementHeaders = ["Date", "Transaction Reference", "Transaction Reference", "Ref.No./Chq.No.", "Credit", "Debit", "Balance"];
     private static readonly string[] OrderHeaders = ["Date / Time", "Order ID", "Pod Name", "Amount", "View"];
 
     public IReadOnlyList<ExtractedTransaction> Parse(byte[] body) =>
@@ -264,6 +266,18 @@ public sealed class TransactionResultParser
             return true;
         }
 
+        if (Matches(values, SbiSavingsCreditDebitStatementHeaders))
+        {
+            headers = SbiSavingsCreditDebitStatementHeaders;
+            return true;
+        }
+
+        if (Matches(values, SbiSavingsRepeatedReferenceStatementHeaders))
+        {
+            headers = SbiSavingsRepeatedReferenceStatementHeaders;
+            return true;
+        }
+
         if (Matches(values, OrderHeaders))
         {
             headers = OrderHeaders;
@@ -374,6 +388,59 @@ public sealed class TransactionResultParser
             return true;
         }
 
+        if (ReferenceEquals(headers, SbiSavingsCreditDebitStatementHeaders))
+        {
+            if (!DateOnly.TryParseExact(values[0], ["dd-MM-yy", "d-M-yy", "dd/MM/yy", "d/M/yy", "dd-MM-yyyy", "d-M-yyyy", "dd/MM/yyyy", "d/M/yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+                || string.IsNullOrWhiteSpace(values[1])
+                || !TryParseOptionalNonZeroAmount(values[3], out var credit)
+                || !TryParseOptionalNonZeroAmount(values[4], out var debit)
+                || credit.HasValue == debit.HasValue
+                || !decimal.TryParse(values[5], NumberStyles.Number, CultureInfo.InvariantCulture, out var balance))
+            {
+                return false;
+            }
+
+            transaction = new(
+                null,
+                SourceDocumentFormat.BankStatement,
+                date,
+                values[1].Trim(),
+                null,
+                NullIfWhiteSpace(values[2]),
+                credit.HasValue ? TransactionDirection.Credit : TransactionDirection.Debit,
+                Math.Abs(credit ?? debit!.Value),
+                balance,
+                null);
+            return true;
+        }
+
+        if (ReferenceEquals(headers, SbiSavingsRepeatedReferenceStatementHeaders))
+        {
+            if (!DateOnly.TryParseExact(values[0], ["dd-MM-yy", "d-M-yy", "dd/MM/yy", "d/M/yy", "dd-MM-yyyy", "d-M-yyyy", "dd/MM/yyyy", "d/M/yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+                || string.IsNullOrWhiteSpace(values[1])
+                || !values[1].Equals(values[2], StringComparison.Ordinal)
+                || !TryParseOptionalNonZeroAmount(values[4], out var credit)
+                || !TryParseOptionalNonZeroAmount(values[5], out var debit)
+                || credit.HasValue == debit.HasValue
+                || !decimal.TryParse(values[6], NumberStyles.Number, CultureInfo.InvariantCulture, out var balance))
+            {
+                return false;
+            }
+
+            transaction = new(
+                null,
+                SourceDocumentFormat.BankStatement,
+                date,
+                values[1].Trim(),
+                null,
+                NullIfWhiteSpace(values[3]),
+                credit.HasValue ? TransactionDirection.Credit : TransactionDirection.Debit,
+                Math.Abs(credit ?? debit!.Value),
+                balance,
+                null);
+            return true;
+        }
+
         if (ReferenceEquals(headers, OrderHeaders)
             && DateOnly.TryParseExact(values[0], "dd-MM-yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var orderDate)
             && long.TryParse(values[1], NumberStyles.None, CultureInfo.InvariantCulture, out _)
@@ -413,6 +480,21 @@ public sealed class TransactionResultParser
 
         amount = null;
         return false;
+    }
+
+    private static bool TryParseOptionalNonZeroAmount(string value, out decimal? amount)
+    {
+        if (!TryParseOptionalAmount(value, out amount))
+        {
+            return false;
+        }
+
+        if (amount == 0)
+        {
+            amount = null;
+        }
+
+        return true;
     }
 
     private static string? NullIfWhiteSpace(string value) =>

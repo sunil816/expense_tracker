@@ -302,6 +302,94 @@ public sealed class DocumentExtractionTests
                     });
             }
 
+                [Fact]
+                public void ParserMapsSbiCreditDebitStatementTables()
+                {
+                    var body = System.Text.Encoding.UTF8.GetBytes("""
+                        {
+                            "document": {
+                                "json_content": {
+                                    "tables": [{
+                                        "data": {
+                                            "grid": [
+                                                [{"text":"Date"},{"text":"Transaction Reference"},{"text":"Ref.No./Chq.No."},{"text":"Credit"},{"text":"Debit"},{"text":"Balance"}],
+                                                [{"text":"01-04-26"},{"text":"Salary credit"},{"text":"NEFT-001"},{"text":"15,000.00"},{"text":"0.00"},{"text":"16,966.12"}],
+                                                [{"text":"02-04-26"},{"text":"Cafe purchase"},{"text":"UPI-002"},{"text":"0.00"},{"text":"250.00"},{"text":"16,716.12"}]
+                                            ]
+                                        }
+                                    }]
+                                },
+                                "md_content": null
+                            }
+                        }
+                        """);
+
+                    var transactions = new TransactionResultParser().Parse(body);
+
+                    Assert.Collection(
+                        transactions,
+                        transaction =>
+                        {
+                            Assert.Equal("Salary credit", transaction.Description);
+                            Assert.Equal("NEFT-001", transaction.ExternalReference);
+                            Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                            Assert.Equal(15_000m, transaction.Amount);
+                            Assert.Equal(16_966.12m, transaction.BalanceAfter);
+                        },
+                        transaction =>
+                        {
+                            Assert.Equal("Cafe purchase", transaction.Description);
+                            Assert.Equal("UPI-002", transaction.ExternalReference);
+                            Assert.Equal(TransactionDirection.Debit, transaction.Direction);
+                            Assert.Equal(250m, transaction.Amount);
+                            Assert.Equal(16_716.12m, transaction.BalanceAfter);
+                        });
+                }
+
+                [Fact]
+                public void ParserMapsSbiStatementsWithRepeatedTransactionReferenceHeader()
+                {
+                    var body = System.Text.Encoding.UTF8.GetBytes("""
+                        {
+                            "document": {
+                                "json_content": {
+                                    "tables": [{
+                                        "data": {
+                                            "grid": [
+                                                [{"text":"Date"},{"text":"Transaction Reference"},{"text":"Transaction Reference"},{"text":"Ref.No./Chq.No."},{"text":"Credit"},{"text":"Debit"},{"text":"Balance"}],
+                                                [{"text":"01-04-26"},{"text":"Salary credit"},{"text":"Salary credit"},{"text":"NEFT-001"},{"text":"15,000.00"},{"text":"0.00"},{"text":"16,966.12"}],
+                                                [{"text":"02-04-26"},{"text":"Cafe purchase"},{"text":"Cafe purchase"},{"text":"UPI-002"},{"text":"0.00"},{"text":"250.00"},{"text":"16,716.12"}]
+                                            ]
+                                        }
+                                    }]
+                                },
+                                "md_content": null
+                            }
+                        }
+                        """);
+
+                    var transactions = new TransactionResultParser().Parse(body);
+
+                    Assert.Collection(
+                        transactions,
+                        transaction =>
+                        {
+                            Assert.Equal("Salary credit", transaction.Description);
+                            Assert.Equal("NEFT-001", transaction.ExternalReference);
+                            Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                            Assert.Equal(15_000m, transaction.Amount);
+                            Assert.Equal(16_966.12m, transaction.BalanceAfter);
+                        },
+                        transaction =>
+                        {
+                            Assert.Equal("Cafe purchase", transaction.Description);
+                            Assert.Equal("UPI-002", transaction.ExternalReference);
+                            Assert.Equal(TransactionDirection.Debit, transaction.Direction);
+                            Assert.Equal(250m, transaction.Amount);
+                            Assert.Equal(16_716.12m, transaction.BalanceAfter);
+                        });
+                }
+
             [Theory]
             [InlineData("output1.json", 368)]
             [InlineData("output2.txt", 51)]

@@ -87,7 +87,7 @@ $submit = curl.exe -sS -X POST 'http://localhost:5001/v1/convert/file/async' `
   -F "files=@$pdf;type=application/pdf" `
   -F 'from_formats=pdf' `
   -F 'to_formats=json' `
-  -F 'do_ocr=false' `
+  -F 'do_ocr=true' `
   -F 'do_table_structure=true' `
   -F 'table_mode=accurate' `
   -F 'pdf_backend=docling_parse'

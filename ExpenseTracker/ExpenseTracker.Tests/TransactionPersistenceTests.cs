@@ -72,7 +72,7 @@ public sealed class TransactionPersistenceTests
             service.SaveAsync(new string('b', 64), invalidTransactions, CancellationToken.None));
 
         await using var context = await database.CreateContextAsync();
-        Assert.Equal(15, await context.Categories.CountAsync());
+        Assert.Equal(17, await context.Categories.CountAsync());
         Assert.Equal(CategoryKind.Expense, (await context.Categories.SingleAsync(category => category.Slug == "hundi")).Kind);
         Assert.Equal(CategoryKind.Income, (await context.Categories.SingleAsync(category => category.Slug == "salary")).Kind);
         Assert.Equal(CategoryKind.Income, (await context.Categories.SingleAsync(category => category.Slug == "interest-income")).Kind);
