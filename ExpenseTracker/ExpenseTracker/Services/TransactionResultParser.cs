@@ -13,6 +13,7 @@ public sealed class TransactionResultParser
     private static readonly string[] SbiSavingsCreditDebitStatementHeaders = ["Date", "Transaction Reference", "Ref.No./Chq.No.", "Credit", "Debit", "Balance"];
     private static readonly string[] SbiSavingsRepeatedReferenceStatementHeaders = ["Date", "Transaction Reference", "Transaction Reference", "Ref.No./Chq.No.", "Credit", "Debit", "Balance"];
     private static readonly string[] OrderHeaders = ["Date / Time", "Order ID", "Pod Name", "Amount", "View"];
+    private static readonly string[] HdfcCreditCardTransactionHeaders = ["DATE & TIME", "TRANSACTION DESCRIPTION", "AMOUNT", "PI"];
 
     public IReadOnlyList<ExtractedTransaction> Parse(byte[] body) =>
         Parse(body, new Dictionary<int, IReadOnlyList<string>>());
@@ -111,6 +112,14 @@ public sealed class TransactionResultParser
             }
         }
 
+        if (transactions.Count == 0)
+        {
+            foreach (var textRow in ParseHdfcStructuredTextRows(jsonContent))
+            {
+                AddMappedRow(transactions, textRow.Headers, textRow.Values);
+            }
+        }
+
         return transactions;
     }
 
@@ -193,6 +202,79 @@ public sealed class TransactionResultParser
         }
 
         return rowsByPage;
+    }
+
+    private static List<(string[] Headers, string[] Values)> ParseHdfcStructuredTextRows(JsonElement jsonContent)
+    {
+        if (!jsonContent.TryGetProperty("texts", out var texts) || texts.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var values = texts.EnumerateArray()
+            .Where(text => text.TryGetProperty("text", out var value) && value.ValueKind == JsonValueKind.String)
+            .Select(text => text.GetProperty("text").GetString()!.Trim())
+            .ToArray();
+        var headerIndex = Enumerable.Range(0, values.Length - HdfcCreditCardTransactionHeaders.Length + 1)
+            .FirstOrDefault(index => Matches(values.Skip(index).Take(HdfcCreditCardTransactionHeaders.Length).ToArray(), HdfcCreditCardTransactionHeaders), -1);
+        if (headerIndex < 0)
+        {
+            return [];
+        }
+
+        var rows = new List<(string[] Headers, string[] Values)>();
+        for (var index = headerIndex + HdfcCreditCardTransactionHeaders.Length; index < values.Length; index++)
+        {
+            if (!TryNormalizeHdfcDate(values[index], out var date))
+            {
+                continue;
+            }
+
+            var descriptionParts = new List<string>();
+            var isCredit = false;
+            string? amount = null;
+            var rowEnd = index + 1;
+            for (; rowEnd < values.Length; rowEnd++)
+            {
+                var value = values[rowEnd];
+                if (TryNormalizeHdfcDate(value, out _)
+                    || value.Equals("Eligible for EMI", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                if (value.StartsWith('+'))
+                {
+                    isCredit = true;
+                    continue;
+                }
+
+                if (TryParseHdfcAmount(value, out _, out _))
+                {
+                    amount = value;
+                    break;
+                }
+
+                if (!value.Equals("EMI", StringComparison.OrdinalIgnoreCase)
+                    && !value.Equals("C", StringComparison.Ordinal)
+                    && !value.Equals("l", StringComparison.Ordinal))
+                {
+                    descriptionParts.Add(value);
+                }
+            }
+
+            if (amount is null || descriptionParts.Count == 0)
+            {
+                continue;
+            }
+
+            rows.Add((
+                HdfcCreditCardTransactionHeaders,
+                [date, string.Join(' ', descriptionParts), isCredit ? $"+ {amount}" : amount, string.Empty]));
+            index = rowEnd;
+        }
+
+        return rows;
     }
 
     private static bool TryGetPageNumber(JsonElement element, out int pageNumber)
@@ -278,6 +360,12 @@ public sealed class TransactionResultParser
             return true;
         }
 
+        if (Matches(values, HdfcCreditCardTransactionHeaders))
+        {
+            headers = HdfcCreditCardTransactionHeaders;
+            return true;
+        }
+
         if (Matches(values, OrderHeaders))
         {
             headers = OrderHeaders;
@@ -309,6 +397,29 @@ public sealed class TransactionResultParser
         if (values.Length != headers.Length)
         {
             return false;
+        }
+
+        if (ReferenceEquals(headers, HdfcCreditCardTransactionHeaders))
+        {
+            if (!TryNormalizeHdfcDate(values[0], out var date)
+                || string.IsNullOrWhiteSpace(values[1])
+                || !TryParseHdfcAmount(values[2], out var amount, out var direction))
+            {
+                return false;
+            }
+
+            transaction = new(
+                null,
+                SourceDocumentFormat.BankStatement,
+                DateOnly.ParseExact(date, "dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
+                values[1].Trim(),
+                null,
+                null,
+                direction,
+                amount,
+                null,
+                null);
+            return true;
         }
 
         if (ReferenceEquals(headers, PaymentHeaders))
@@ -462,6 +573,40 @@ public sealed class TransactionResultParser
         }
 
         return false;
+    }
+
+    private static bool TryNormalizeHdfcDate(string value, out string normalized)
+    {
+        var candidate = string.Join(' ', value.Replace('|', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (DateTime.TryParseExact(
+                candidate,
+                ["dd/MM/yyyy HH:mm", "d/M/yyyy H:mm", "dd/MM/yyyy H:mm", "d/M/yyyy HH:mm"],
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var dateTime))
+        {
+            normalized = dateTime.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        normalized = string.Empty;
+        return false;
+    }
+
+    private static bool TryParseHdfcAmount(string value, out decimal amount, out TransactionDirection direction)
+    {
+        var trimmed = value.Trim();
+        direction = trimmed.StartsWith('+') ? TransactionDirection.Credit : TransactionDirection.Debit;
+        var normalized = trimmed.TrimStart('+').Replace("₹", string.Empty).Replace(",", string.Empty).Trim();
+
+        if (!decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out amount)
+            || amount <= 0)
+        {
+            amount = 0;
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryParseOptionalAmount(string value, out decimal? amount)

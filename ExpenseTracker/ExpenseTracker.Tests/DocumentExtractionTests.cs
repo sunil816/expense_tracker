@@ -302,6 +302,132 @@ public sealed class DocumentExtractionTests
                     });
             }
 
+            [Fact]
+            public void ParserMapsHdfcCreditCardTransactions()
+            {
+                var body = System.Text.Encoding.UTF8.GetBytes("""
+                    {
+                        "document": {
+                            "json_content": {
+                                "tables": [{
+                                    "data": {
+                                        "grid": [
+                                            [{"text":"DATE & TIME"},{"text":"TRANSACTION DESCRIPTION"},{"text":"AMOUNT"},{"text":"PI"}],
+                                            [{"text":"06/08/2026 22:26"},{"text":"AMAZON GIFT CARD MUMBAI"},{"text":"₹ 10,000.00"},{"text":""}],
+                                            [{"text":"09/08/2026 11:25"},{"text":"BPPY CC PAYMENT EU016221279935e646f (Ref# ST262220083000010126250)"},{"text":"+ ₹ 3,442.00"},{"text":""}],
+                                            [{"text":"20/08/2026 00:00"},{"text":"10% Swiggy CashBack"},{"text":"+ ₹ 35.80"},{"text":""}]
+                                        ]
+                                    }
+                                }]
+                            },
+                            "md_content": null
+                        }
+                    }
+                    """);
+
+                var transactions = new TransactionResultParser().Parse(body);
+
+                Assert.Collection(
+                    transactions,
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 6), transaction.TransactionDate);
+                        Assert.Equal("AMAZON GIFT CARD MUMBAI", transaction.Description);
+                        Assert.Equal(TransactionDirection.Debit, transaction.Direction);
+                        Assert.Equal(10_000m, transaction.Amount);
+                    },
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 9), transaction.TransactionDate);
+                        Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                        Assert.Equal(3_442m, transaction.Amount);
+                    },
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 20), transaction.TransactionDate);
+                        Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                        Assert.Equal(35.80m, transaction.Amount);
+                    });
+            }
+
+            [Fact]
+            public void ParserMapsHdfcCreditCardTransactionsFromStructuredText()
+            {
+                var body = System.Text.Encoding.UTF8.GetBytes("""
+                    {
+                        "document": {
+                            "json_content": {
+                                "texts": [
+                                    {"text":"Domestic Transactions"},
+                                    {"text":"DATE & TIME"},
+                                    {"text":"TRANSACTION DESCRIPTION"},
+                                    {"text":"AMOUNT"},
+                                    {"text":"PI"},
+                                    {"text":"SUNIL PATIL"},
+                                    {"text":"[CKYC ID : 10015654435788 ]"},
+                                    {"text":"06/08/2026| 22:26"},
+                                    {"text":"EMI"},
+                                    {"text":"AMAZON GIFT CARDMUMBAI"},
+                                    {"text":"C"},
+                                    {"text":"10,000.00"},
+                                    {"text":"l"},
+                                    {"text":"09/08/2026| 11:25"},
+                                    {"text":"BPPY CC PAYMENT EU016221279935e646f (Ref# ST262220083000010126250)"},
+                                    {"text":"+"},
+                                    {"text":"C"},
+                                    {"text":"3,442.00"},
+                                    {"text":"l"},
+                                    {"text":"18/08/2026| 21:23"},
+                                    {"text":"SWIGGY FOODBANGALORE"},
+                                    {"text":"C"},
+                                    {"text":"358.00"},
+                                    {"text":"l"},
+                                    {"text":"20/08/2026| 00:00"},
+                                    {"text":"10% Swiggy CashBack"},
+                                    {"text":"+"},
+                                    {"text":"C"},
+                                    {"text":"35.80"},
+                                    {"text":"l"},
+                                    {"text":"Eligible for EMI"}
+                                ],
+                                "tables": []
+                            },
+                            "md_content": null
+                        }
+                    }
+                    """);
+
+                var transactions = new TransactionResultParser().Parse(body);
+
+                Assert.Collection(
+                    transactions,
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 6), transaction.TransactionDate);
+                        Assert.Equal("AMAZON GIFT CARDMUMBAI", transaction.Description);
+                        Assert.Equal(TransactionDirection.Debit, transaction.Direction);
+                        Assert.Equal(10_000m, transaction.Amount);
+                    },
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 9), transaction.TransactionDate);
+                        Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                        Assert.Equal(3_442m, transaction.Amount);
+                    },
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 18), transaction.TransactionDate);
+                        Assert.Equal(TransactionDirection.Debit, transaction.Direction);
+                        Assert.Equal(358m, transaction.Amount);
+                    },
+                    transaction =>
+                    {
+                        Assert.Equal(new DateOnly(2026, 8, 20), transaction.TransactionDate);
+                        Assert.Equal(TransactionDirection.Credit, transaction.Direction);
+                        Assert.Equal(35.80m, transaction.Amount);
+                    });
+            }
+
                 [Fact]
                 public void ParserMapsSbiCreditDebitStatementTables()
                 {

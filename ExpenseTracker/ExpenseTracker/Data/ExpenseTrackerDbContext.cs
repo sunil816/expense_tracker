@@ -230,6 +230,10 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000014"), Slug = "fuel", Name = "Fuel", Kind = CategoryKind.Expense },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000015"), Slug = "interest-income", Name = "Interest Income", Kind = CategoryKind.Income },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000016"), Slug = "health", Name = "Health", Kind = CategoryKind.Expense },
-        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000017"), Slug = "gifts", Name = "Gifts", Kind = CategoryKind.Expense }
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000017"), Slug = "gifts", Name = "Gifts", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000018"), Slug = "celebrations", Name = "Celebrations", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000019"), Slug = "personal", Name = "Personal", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000020"), Slug = "clothing", Name = "Clothing", Kind = CategoryKind.Expense, ParentCategoryId = Guid.Parse("10000000-0000-0000-0000-000000000019") },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000021"), Slug = "bank-charges", Name = "Bank Charges", Kind = CategoryKind.Expense }
     ];
 }
