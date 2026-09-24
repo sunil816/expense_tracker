@@ -105,7 +105,9 @@ public sealed class ControllerValidationTests
     }
 
     private static TransactionsController CreateTransactionsController(TestDatabase database) =>
-        new(database.Services.GetRequiredService<TransactionService>())
+        new(
+            database.Services.GetRequiredService<TransactionService>(),
+            database.Services.GetRequiredService<TransactionSuggestionService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

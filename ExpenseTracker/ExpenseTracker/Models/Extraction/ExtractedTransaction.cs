@@ -40,12 +40,24 @@ public sealed record SavedTransaction(
     Guid? CategoryId,
     string? ReceiptUrl,
     LineExtractionStatus LineExtractionStatus,
-    DuplicateFlagDetails? DuplicateFlag);
+    DuplicateFlagDetails? DuplicateFlag,
+    KindSuggestionDetails? KindSuggestion);
 
 public sealed record DuplicateFlagDetails(
     Guid FlagId,
     Guid MatchedTransactionId,
     DuplicateMatchReason Reason,
     DuplicateFlagState State,
+    DateTimeOffset SuggestedAt,
+    DateTimeOffset? DecidedAt);
+
+public sealed record KindSuggestionDetails(
+    Guid SuggestionId,
+    TransactionKind PreviousKind,
+    TransactionKind SuggestedKind,
+    TransactionKind? ResolvedKind,
+    SuggestionState State,
+    string Source,
+    string Reason,
     DateTimeOffset SuggestedAt,
     DateTimeOffset? DecidedAt);

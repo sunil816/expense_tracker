@@ -3,6 +3,7 @@ using System;
 using ExpenseTracker.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ExpenseTracker.Migrations
 {
     [DbContext(typeof(ExpenseTrackerDbContext))]
-    partial class ExpenseTrackerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920160353_AddBankChargesCategory")]
+    partial class AddBankChargesCategory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -551,79 +554,6 @@ namespace ExpenseTracker.Migrations
                     b.ToTable("transaction_line_tags", (string)null);
                 });
 
-            modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionSuggestion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset?>("DecidedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("decided_at");
-
-                    b.Property<string>("Field")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("field");
-
-                    b.Property<string>("PreviousKind")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("previous_kind");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("reason");
-
-                    b.Property<string>("ResolvedKind")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("resolved_kind");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("source");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("state");
-
-                    b.Property<DateTimeOffset>("SuggestedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("suggested_at");
-
-                    b.Property<string>("SuggestedKind")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("suggested_kind");
-
-                    b.Property<Guid>("TransactionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("transaction_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("State")
-                        .HasDatabaseName("ix_transaction_suggestions_state");
-
-                    b.HasIndex("TransactionId", "Field")
-                        .IsUnique()
-                        .HasDatabaseName("ix_transaction_suggestions_transaction_field");
-
-                    b.ToTable("transaction_suggestions", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_transaction_suggestions_decision_timestamp", "(state = 'Suggested' AND decided_at IS NULL) OR (state <> 'Suggested' AND decided_at IS NOT NULL)");
-                        });
-                });
-
             modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionTag", b =>
                 {
                     b.Property<Guid>("TransactionId")
@@ -737,17 +667,6 @@ namespace ExpenseTracker.Migrations
                     b.Navigation("TransactionLine");
                 });
 
-            modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionSuggestion", b =>
-                {
-                    b.HasOne("ExpenseTracker.Models.Persistence.ExpenseTransaction", "Transaction")
-                        .WithMany("Suggestions")
-                        .HasForeignKey("TransactionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Transaction");
-                });
-
             modelBuilder.Entity("ExpenseTracker.Models.Persistence.TransactionTag", b =>
                 {
                     b.HasOne("ExpenseTracker.Models.Persistence.Tag", "Tag")
@@ -786,8 +705,6 @@ namespace ExpenseTracker.Migrations
                     b.Navigation("Lines");
 
                     b.Navigation("MatchedByDuplicateFlags");
-
-                    b.Navigation("Suggestions");
 
                     b.Navigation("TagAssignments");
                 });

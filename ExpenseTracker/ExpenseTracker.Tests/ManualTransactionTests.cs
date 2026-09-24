@@ -124,7 +124,9 @@ public sealed class ManualTransactionTests
     public async Task ControllerReturnsCreatedAndRejectsUnknownCategory()
     {
         await using var database = await TestDatabase.CreateAsync();
-        var controller = new TransactionsController(database.Services.GetRequiredService<TransactionService>())
+        var controller = new TransactionsController(
+            database.Services.GetRequiredService<TransactionService>(),
+            database.Services.GetRequiredService<TransactionSuggestionService>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

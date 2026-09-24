@@ -285,10 +285,16 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var transaction = await context.Transactions
+            .Include(candidate => candidate.Suggestions)
             .SingleOrDefaultAsync(candidate => candidate.Id == transactionId, cancellationToken);
         if (transaction is null)
         {
             return new TransactionUpdateResult(TransactionUpdateOutcome.NotFound, null);
+        }
+
+        if (request.Kind is null)
+        {
+            return new TransactionUpdateResult(TransactionUpdateOutcome.MissingKind, null);
         }
 
         if (request.CategoryId is { } categoryId
@@ -297,16 +303,31 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
             return new TransactionUpdateResult(TransactionUpdateOutcome.UnknownCategory, null);
         }
 
+        var previousKind = transaction.Kind;
         transaction.TransactionDate = request.TransactionDate!.Value;
         transaction.Description = request.Description.Trim();
         transaction.Note = NullIfWhiteSpace(request.Note);
         transaction.Direction = request.Direction!.Value;
-        transaction.Kind = request.Kind ?? DefaultKind(request.Direction.Value);
+        transaction.Kind = request.Kind.Value;
         transaction.Amount = request.Amount;
         transaction.AccountLabel = NullIfWhiteSpace(request.AccountLabel);
         transaction.ExternalReference = NullIfWhiteSpace(request.ExternalReference);
         transaction.CategoryId = transaction.Kind == TransactionKind.Transfer ? null : request.CategoryId;
         transaction.ReceiptUrl = NullIfWhiteSpace(request.ReceiptUrl);
+
+        var suggestion = transaction.Suggestions
+            .SingleOrDefault(candidate => candidate.Field == SuggestionField.Kind && candidate.State == SuggestionState.Suggested);
+        if (suggestion is not null && transaction.Kind != previousKind)
+        {
+            suggestion.State = transaction.Kind == suggestion.SuggestedKind
+                ? SuggestionState.Confirmed
+                : transaction.Kind == suggestion.PreviousKind
+                    ? SuggestionState.Rejected
+                    : SuggestionState.Edited;
+            suggestion.ResolvedKind = transaction.Kind;
+            suggestion.DecidedAt = DateTimeOffset.UtcNow;
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
         var detail = await LoadDetailAsync(context, transactionId, cancellationToken);
@@ -370,12 +391,12 @@ public sealed class TransactionService(IDbContextFactory<ExpenseTrackerDbContext
                 assignment.DecidedAt))
             .OrderBy(tag => tag.Name)];
 
-    private static TransactionKind DefaultKind(TransactionDirection direction) =>
-        direction == TransactionDirection.Credit ? TransactionKind.Income : TransactionKind.Expense;
-
     private static DuplicateFlagResponse ToDuplicateFlagResponse(TransactionDuplicateFlag flag) =>
         new(flag.Id, flag.TransactionId, flag.MatchedTransactionId, flag.Reason, flag.State, flag.SuggestedAt, flag.DecidedAt);
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static TransactionKind DefaultKind(TransactionDirection direction) =>
+        direction == TransactionDirection.Credit ? TransactionKind.Income : TransactionKind.Expense;
 }

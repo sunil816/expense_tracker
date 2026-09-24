@@ -6,7 +6,9 @@ namespace ExpenseTracker.Controllers;
 
 [ApiController]
 [Route("api/transactions")]
-public sealed class TransactionsController(TransactionService transactionService) : ControllerBase
+public sealed class TransactionsController(
+    TransactionService transactionService,
+    TransactionSuggestionService suggestionService) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> ListAsync([FromQuery] TransactionListQuery query, CancellationToken cancellationToken)
@@ -66,6 +68,10 @@ public sealed class TransactionsController(TransactionService transactionService
         {
             TransactionUpdateOutcome.Updated => Ok(result.Transaction),
             TransactionUpdateOutcome.UnknownCategory => UnknownCategory(),
+            TransactionUpdateOutcome.MissingKind => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "The transaction kind is required.",
+                detail: "kind must be supplied when updating a transaction."),
             _ => TransactionNotFound()
         };
     }
@@ -96,6 +102,44 @@ public sealed class TransactionsController(TransactionService transactionService
             DuplicateFlagDecisionOutcome.Conflict => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "The duplicate flag was already decided.",
+                detail: "An existing decision cannot be changed."),
+            _ => TransactionNotFound()
+        };
+    }
+
+    [HttpPut("{transactionId:guid}/suggestions/{suggestionId:guid}")]
+    public async Task<IActionResult> DecideSuggestionAsync(
+        Guid transactionId,
+        Guid suggestionId,
+        [FromBody] TransactionSuggestionDecisionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (RequireHttps() is { } insecure)
+        {
+            return insecure;
+        }
+
+        var result = await suggestionService.DecideAsync(
+            transactionId,
+            suggestionId,
+            request.State!.Value,
+            request.Kind,
+            cancellationToken);
+        return result.Outcome switch
+        {
+            TransactionSuggestionDecisionOutcome.Updated => Ok(result.Suggestion),
+            TransactionSuggestionDecisionOutcome.AlreadyDecided => Ok(result.Suggestion),
+            TransactionSuggestionDecisionOutcome.InvalidState => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "The suggestion state is invalid.",
+                detail: "A suggestion can only be confirmed, rejected, or edited."),
+            TransactionSuggestionDecisionOutcome.MissingResolvedKind => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "The edited kind is required.",
+                detail: "kind must be supplied when editing a suggestion."),
+            TransactionSuggestionDecisionOutcome.Conflict => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The suggestion was already decided.",
                 detail: "An existing decision cannot be changed."),
             _ => TransactionNotFound()
         };

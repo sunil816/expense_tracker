@@ -81,6 +81,19 @@ public enum DuplicateFlagState
     Rejected
 }
 
+public enum SuggestionField
+{
+    Kind
+}
+
+public enum SuggestionState
+{
+    Suggested,
+    Confirmed,
+    Rejected,
+    Edited
+}
+
 public sealed class DocumentImport
 {
     public Guid Id { get; set; }
@@ -129,6 +142,23 @@ public sealed class ExpenseTransaction
     public List<TransactionTag> TagAssignments { get; set; } = [];
     public List<TransactionDuplicateFlag> DuplicateFlags { get; set; } = [];
     public List<TransactionDuplicateFlag> MatchedByDuplicateFlags { get; set; } = [];
+    public List<TransactionSuggestion> Suggestions { get; set; } = [];
+}
+
+public sealed class TransactionSuggestion
+{
+    public Guid Id { get; set; }
+    public Guid TransactionId { get; set; }
+    public ExpenseTransaction Transaction { get; set; } = null!;
+    public SuggestionField Field { get; set; }
+    public TransactionKind? PreviousKind { get; set; }
+    public TransactionKind? SuggestedKind { get; set; }
+    public TransactionKind? ResolvedKind { get; set; }
+    public SuggestionState State { get; set; }
+    public required string Source { get; set; }
+    public required string Reason { get; set; }
+    public DateTimeOffset SuggestedAt { get; set; }
+    public DateTimeOffset? DecidedAt { get; set; }
 }
 
 public sealed class TransactionDuplicateFlag

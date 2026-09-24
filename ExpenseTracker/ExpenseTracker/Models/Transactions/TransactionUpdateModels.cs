@@ -18,6 +18,7 @@ public sealed class TransactionUpdateRequest
     [Required]
     public TransactionDirection? Direction { get; set; }
 
+    [Required]
     public TransactionKind? Kind { get; set; }
 
     [Range(typeof(decimal), "0", "9999999999999999.99")]
@@ -97,9 +98,67 @@ public enum TransactionUpdateOutcome
 {
     Updated,
     NotFound,
-    UnknownCategory
+    UnknownCategory,
+    MissingKind
 }
 
 public sealed record TransactionUpdateResult(
     TransactionUpdateOutcome Outcome,
     TransactionDetailResponse? Transaction);
+
+public sealed record TransactionSuggestionResponse(
+    Guid Id,
+    Guid TransactionId,
+    SuggestionField Field,
+    TransactionKind? PreviousKind,
+    TransactionKind? SuggestedKind,
+    TransactionKind? ResolvedKind,
+    SuggestionState State,
+    string Source,
+    string Reason,
+    DateTimeOffset SuggestedAt,
+    DateTimeOffset? DecidedAt);
+
+public enum TransactionSuggestionDecisionOutcome
+{
+    Updated,
+    AlreadyDecided,
+    NotFound,
+    InvalidState,
+    MissingResolvedKind,
+    UnsupportedField,
+    Conflict
+}
+
+public sealed record TransactionSuggestionDecisionResult(
+    TransactionSuggestionDecisionOutcome Outcome,
+    TransactionSuggestionResponse? Suggestion);
+
+public sealed class TransactionSuggestionQuery
+{
+    public SuggestionState? State { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int Page { get; set; } = 1;
+
+    [Range(1, 200)]
+    public int PageSize { get; set; } = 50;
+}
+
+public sealed record TransactionSuggestionItemResponse(
+    TransactionSuggestionResponse Suggestion,
+    TransactionSummaryResponse Transaction);
+
+public sealed record TransactionSuggestionPageResponse(
+    IReadOnlyList<TransactionSuggestionItemResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed class TransactionSuggestionDecisionRequest
+{
+    [Required]
+    public SuggestionState? State { get; set; }
+
+    public TransactionKind? Kind { get; set; }
+}

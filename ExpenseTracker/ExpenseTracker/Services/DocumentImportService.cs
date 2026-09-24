@@ -19,6 +19,8 @@ public sealed class DocumentImportService(
             .AsNoTracking()
             .Include(import => import.Transactions)
             .ThenInclude(transaction => transaction.DuplicateFlags)
+            .Include(import => import.Transactions)
+            .ThenInclude(transaction => transaction.Suggestions)
             .SingleOrDefaultAsync(import => import.ContentHash == contentHash, cancellationToken);
 
         return documentImport is null ? null : ToResult(documentImport, isDuplicate: true);
@@ -44,6 +46,7 @@ public sealed class DocumentImportService(
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             var matches = await duplicateService.ClassifyAsync(provider, extractedTransactions, importedAt, cancellationToken);
             var transactions = ImportedTransactionFactory.Create(extractedTransactions);
+            var suggestions = ImportedTransactionFactory.CreateSuggestions(transactions, importedAt);
             var documentImport = new DocumentImport
             {
                 Id = Guid.NewGuid(),
@@ -72,6 +75,7 @@ public sealed class DocumentImportService(
             }
 
             context.DocumentImports.Add(documentImport);
+            context.TransactionSuggestions.AddRange(suggestions);
             await context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return ToResult(documentImport, isDuplicate: false);
@@ -129,6 +133,19 @@ public sealed class DocumentImportService(
                             flag.State,
                             flag.SuggestedAt,
                             flag.DecidedAt))
+                        .SingleOrDefault(),
+                    transaction.Suggestions
+                        .Where(suggestion => suggestion.Field == SuggestionField.Kind)
+                        .Select(suggestion => new KindSuggestionDetails(
+                            suggestion.Id,
+                            suggestion.PreviousKind!.Value,
+                            suggestion.SuggestedKind!.Value,
+                            suggestion.ResolvedKind,
+                            suggestion.State,
+                            suggestion.Source,
+                            suggestion.Reason,
+                            suggestion.SuggestedAt,
+                            suggestion.DecidedAt))
                         .SingleOrDefault()))
                 .ToArray());
 

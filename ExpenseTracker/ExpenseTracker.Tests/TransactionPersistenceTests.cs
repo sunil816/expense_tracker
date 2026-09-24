@@ -59,6 +59,38 @@ public sealed class TransactionPersistenceTests
     }
 
     [Fact]
+    public async Task ImportRecordsAppliedKindAsAReviewableSuggestion()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = database.Services.GetRequiredService<DocumentImportService>();
+        var imported = await service.SaveAsync(
+            new string('d', 64),
+            [new ExtractedTransaction(
+                null,
+                SourceDocumentFormat.BankStatement,
+                new DateOnly(2026, 8, 12),
+                "ATM CASH WITHDRAWAL",
+                null,
+                null,
+                TransactionDirection.Debit,
+                500m,
+                null,
+                null)],
+            CancellationToken.None);
+
+        var saved = Assert.Single(imported.Transactions);
+        Assert.Equal(TransactionKind.Transfer, saved.Kind);
+        Assert.NotNull(saved.KindSuggestion);
+        Assert.Equal(TransactionKind.Expense, saved.KindSuggestion!.PreviousKind);
+        Assert.Equal(TransactionKind.Transfer, saved.KindSuggestion.SuggestedKind);
+        Assert.Equal(SuggestionState.Suggested, saved.KindSuggestion.State);
+
+        await using var context = await database.CreateContextAsync();
+        var suggestion = await context.TransactionSuggestions.SingleAsync();
+        Assert.Equal(saved.Id, suggestion.TransactionId);
+    }
+
+    [Fact]
     public async Task SchemaSeedsCategoriesAndRejectsNegativeAmountsAtomically()
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -72,11 +104,11 @@ public sealed class TransactionPersistenceTests
             service.SaveAsync(new string('b', 64), invalidTransactions, CancellationToken.None));
 
         await using var context = await database.CreateContextAsync();
-        Assert.Equal(17, await context.Categories.CountAsync());
+        Assert.Equal(21, await context.Categories.CountAsync());
         Assert.Equal(CategoryKind.Expense, (await context.Categories.SingleAsync(category => category.Slug == "hundi")).Kind);
         Assert.Equal(CategoryKind.Income, (await context.Categories.SingleAsync(category => category.Slug == "salary")).Kind);
         Assert.Equal(CategoryKind.Income, (await context.Categories.SingleAsync(category => category.Slug == "interest-income")).Kind);
-        Assert.Equal(6, await context.Categories.CountAsync(category => category.ParentCategoryId != null));
+        Assert.Equal(7, await context.Categories.CountAsync(category => category.ParentCategoryId != null));
         Assert.Empty(await context.DocumentImports.ToListAsync());
         Assert.Empty(await context.Transactions.ToListAsync());
     }

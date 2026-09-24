@@ -36,6 +36,7 @@ public sealed class TransactionUpdateTests
             Description = "  Team dinner  ",
             Note = "  Reimbursed by Alex  ",
             Direction = TransactionDirection.Credit,
+            Kind = TransactionKind.Income,
             Amount = 999m,
             AccountLabel = "   ",
             ExternalReference = " REF-1 ",
@@ -83,6 +84,31 @@ public sealed class TransactionUpdateTests
         await using var verification = await database.CreateContextAsync();
         var stored = await verification.Transactions.SingleAsync();
         Assert.Equal("Cash lunch", stored.Description);
+    }
+
+    [Fact]
+    public async Task UpdateWithoutKindIsRejectedInsteadOfReclassifyingTheTransaction()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var transactionId = Guid.NewGuid();
+        await using (var context = await database.CreateContextAsync())
+        {
+            var transaction = Manual(transactionId, "Bank transfer");
+            transaction.Kind = TransactionKind.Transfer;
+            context.Transactions.Add(transaction);
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<TransactionService>();
+        var result = await service.UpdateAsync(transactionId, Request("Renamed", kind: null), CancellationToken.None);
+
+        Assert.Equal(TransactionUpdateOutcome.MissingKind, result.Outcome);
+        Assert.Null(result.Transaction);
+
+        await using var verification = await database.CreateContextAsync();
+        var stored = await verification.Transactions.SingleAsync();
+        Assert.Equal(TransactionKind.Transfer, stored.Kind);
+        Assert.Equal("Bank transfer", stored.Description);
     }
 
     [Fact]
@@ -172,12 +198,13 @@ public sealed class TransactionUpdateTests
         Assert.Equal(LineExtractionStatus.Unavailable, stored.LineExtractionStatus);
     }
 
-    private static TransactionUpdateRequest Request(string description, Guid? categoryId = null) =>
+    private static TransactionUpdateRequest Request(string description, Guid? categoryId = null, TransactionKind? kind = TransactionKind.Expense) =>
         new()
         {
             TransactionDate = new DateOnly(2026, 8, 9),
             Description = description,
             Direction = TransactionDirection.Debit,
+            Kind = kind,
             Amount = 10m,
             CategoryId = categoryId
         };
