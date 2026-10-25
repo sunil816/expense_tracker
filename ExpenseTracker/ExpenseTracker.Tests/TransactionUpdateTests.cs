@@ -15,9 +15,13 @@ public sealed class TransactionUpdateTests
 {
     private static readonly Guid FoodCategoryId = Guid.Parse("10000000-0000-0000-0000-000000000008");
 
-    [Fact]
-    public async Task UpdateReplacesEditableFieldsAndTrimsBlanksToNull()
+    [Theory]
+    [InlineData("10000000-0000-0000-0000-000000000008")]
+    [InlineData("10000000-0000-0000-0000-000000000023")]
+    [InlineData("10000000-0000-0000-0000-000000000024")]
+    public async Task UpdateReplacesEditableFieldsAndTrimsBlanksToNull(string categoryIdValue)
     {
+        var categoryId = Guid.Parse(categoryIdValue);
         await using var database = await TestDatabase.CreateAsync();
         var transactionId = Guid.NewGuid();
         await using (var context = await database.CreateContextAsync())
@@ -40,7 +44,7 @@ public sealed class TransactionUpdateTests
             Amount = 999m,
             AccountLabel = "   ",
             ExternalReference = " REF-1 ",
-            CategoryId = FoodCategoryId,
+            CategoryId = categoryId,
             ReceiptUrl = null
         }, CancellationToken.None);
 
@@ -56,7 +60,7 @@ public sealed class TransactionUpdateTests
         Assert.Equal(new DateOnly(2026, 8, 9), stored.TransactionDate);
         Assert.Equal(TransactionDirection.Credit, stored.Direction);
         Assert.Equal(999m, stored.Amount);
-        Assert.Equal(FoodCategoryId, stored.CategoryId);
+        Assert.Equal(categoryId, stored.CategoryId);
         Assert.Null(stored.ReceiptUrl);
         Assert.Equal("Reimbursed by Alex", stored.Note);
     }
@@ -111,9 +115,13 @@ public sealed class TransactionUpdateTests
         Assert.Equal("Bank transfer", stored.Description);
     }
 
-    [Fact]
-    public async Task MatchingDescriptionsCanBeListedAndCategorizedTogether()
+    [Theory]
+    [InlineData("10000000-0000-0000-0000-000000000008")]
+    [InlineData("10000000-0000-0000-0000-000000000023")]
+    [InlineData("10000000-0000-0000-0000-000000000024")]
+    public async Task MatchingDescriptionsCanBeListedAndCategorizedTogether(string categoryIdValue)
     {
+        var categoryId = Guid.Parse(categoryIdValue);
         await using var database = await TestDatabase.CreateAsync();
         var firstId = Guid.NewGuid();
         var secondId = Guid.NewGuid();
@@ -138,7 +146,7 @@ public sealed class TransactionUpdateTests
         var update = await service.UpdateCategoryForDescriptionAsync(new BulkCategoryRequest
         {
             Description = "Coffee shop",
-            CategoryId = FoodCategoryId
+            CategoryId = categoryId
         }, CancellationToken.None);
 
         Assert.Equal(TransactionUpdateOutcome.Updated, update.Outcome);
@@ -146,7 +154,7 @@ public sealed class TransactionUpdateTests
 
         await using var verification = await database.CreateContextAsync();
         var stored = await verification.Transactions.OrderBy(transaction => transaction.Description).ToListAsync();
-        Assert.All(stored.Where(transaction => transaction.Description == "Coffee shop"), transaction => Assert.Equal(FoodCategoryId, transaction.CategoryId));
+        Assert.All(stored.Where(transaction => transaction.Description == "Coffee shop"), transaction => Assert.Equal(categoryId, transaction.CategoryId));
         Assert.Null(stored.Single(transaction => transaction.Description == "Different shop").CategoryId);
     }
 

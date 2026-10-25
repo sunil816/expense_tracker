@@ -142,6 +142,39 @@ public sealed class TransactionQueryTests
     }
 
     [Fact]
+    public async Task UtilityCategoryFiltersMatchOnlyTheAssignedCategory()
+    {
+        var utilitiesId = Guid.Parse("10000000-0000-0000-0000-000000000022");
+        var mobileId = Guid.Parse("10000000-0000-0000-0000-000000000023");
+        var internetId = Guid.Parse("10000000-0000-0000-0000-000000000024");
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var context = await database.CreateContextAsync())
+        {
+            var utilities = Manual(new DateOnly(2026, 8, 1), "General utility bill", TransactionDirection.Debit);
+            utilities.CategoryId = utilitiesId;
+            var mobile = Manual(new DateOnly(2026, 8, 2), "Mobile recharge", TransactionDirection.Debit);
+            mobile.CategoryId = mobileId;
+            var internet = Manual(new DateOnly(2026, 8, 3), "Home broadband", TransactionDirection.Debit);
+            internet.CategoryId = internetId;
+            context.Transactions.AddRange(utilities, mobile, internet);
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<TransactionService>();
+        foreach (var (categoryId, description) in new[]
+        {
+            (utilitiesId, "General utility bill"),
+            (mobileId, "Mobile recharge"),
+            (internetId, "Home broadband")
+        })
+        {
+            var result = await service.ListAsync(new TransactionListQuery { CategoryId = categoryId }, CancellationToken.None);
+            Assert.Equal(1, result.TotalCount);
+            Assert.Equal(description, Assert.Single(result.Items).Description);
+        }
+    }
+
+    [Fact]
     public async Task ListFiltersByOriginAndSourceFormat()
     {
         await using var database = await TestDatabase.CreateAsync();

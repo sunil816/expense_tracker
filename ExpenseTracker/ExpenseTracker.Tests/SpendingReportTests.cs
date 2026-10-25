@@ -61,6 +61,46 @@ public sealed class SpendingReportTests
     }
 
     [Fact]
+    public async Task UtilityChildrenHaveSeparateTotalsWithoutAParentRollup()
+    {
+        var utilitiesId = Guid.Parse("10000000-0000-0000-0000-000000000022");
+        var mobileId = Guid.Parse("10000000-0000-0000-0000-000000000023");
+        var internetId = Guid.Parse("10000000-0000-0000-0000-000000000024");
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var context = await database.CreateContextAsync())
+        {
+            context.Transactions.AddRange(
+                Manual(new DateOnly(2026, 8, 1), TransactionDirection.Debit, 299m, mobileId),
+                Manual(new DateOnly(2026, 8, 2), TransactionDirection.Debit, 49m, mobileId),
+                Manual(new DateOnly(2026, 8, 3), TransactionDirection.Debit, 799m, internetId));
+            await context.SaveChangesAsync();
+        }
+
+        var service = database.Services.GetRequiredService<ReportService>();
+        var result = await service.GetSpendingAsync(
+            SpendingGranularity.Month,
+            new DateOnly(2026, 8, 1),
+            new DateOnly(2026, 8, 31),
+            CancellationToken.None);
+
+        Assert.Equal(SpendingReportOutcome.Success, result.Outcome);
+        var rows = result.Report!.Rows;
+        Assert.Equal(2, rows.Count);
+        var mobile = Assert.Single(rows, row => row.CategoryId == mobileId);
+        Assert.Equal("Mobile", mobile.CategoryName);
+        Assert.Equal(CategoryKind.Expense, mobile.CategoryKind);
+        Assert.Equal(348m, mobile.Total);
+        Assert.Equal(2, mobile.Count);
+        var internet = Assert.Single(rows, row => row.CategoryId == internetId);
+        Assert.Equal("Internet", internet.CategoryName);
+        Assert.Equal(CategoryKind.Expense, internet.CategoryKind);
+        Assert.Equal(799m, internet.Total);
+        Assert.Equal(1, internet.Count);
+        Assert.DoesNotContain(rows, row => row.CategoryId == utilitiesId);
+        Assert.Equal(1147m, rows.Sum(row => row.Total));
+    }
+
+    [Fact]
     public async Task WeeklyReportUsesIsoMondayStartBuckets()
     {
         await using var database = await TestDatabase.CreateAsync();

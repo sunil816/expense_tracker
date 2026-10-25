@@ -27,6 +27,23 @@ public sealed class CategoryListTests
 
         var salary = Assert.Single(categories, category => category.Slug == "salary");
         Assert.Equal(CategoryKind.Income, salary.Kind);
+
+        var utilities = Assert.Single(categories, category => category.Slug == "bills-utilities");
+        Assert.Equal("Bills & Utilities", utilities.Name);
+        Assert.Equal(CategoryKind.Expense, utilities.Kind);
+        Assert.Null(utilities.ParentCategoryId);
+
+        var mobile = Assert.Single(categories, category => category.Slug == "mobile");
+        Assert.Equal("Mobile", mobile.Name);
+        Assert.Equal(CategoryKind.Expense, mobile.Kind);
+        Assert.Equal(utilities.Id, mobile.ParentCategoryId);
+
+        var internet = Assert.Single(categories, category => category.Slug == "internet");
+        Assert.Equal("Internet", internet.Name);
+        Assert.Equal(CategoryKind.Expense, internet.Kind);
+        Assert.Equal(utilities.Id, internet.ParentCategoryId);
+        Assert.Equal(categories.Count, categories.Select(category => category.Id).Distinct().Count());
+        Assert.Equal(categories.Count, categories.Select(category => category.Slug).Distinct().Count());
     }
 
     [Fact]

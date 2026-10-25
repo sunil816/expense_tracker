@@ -15,11 +15,13 @@ namespace ExpenseTracker.Tests;
 
 public sealed class ManualTransactionTests
 {
-    private static readonly Guid FoodCategoryId = Guid.Parse("10000000-0000-0000-0000-000000000008");
-
-    [Fact]
-    public async Task ManualCashEntryPersistsWithoutDocumentProvenance()
+    [Theory]
+    [InlineData("10000000-0000-0000-0000-000000000008")]
+    [InlineData("10000000-0000-0000-0000-000000000023")]
+    [InlineData("10000000-0000-0000-0000-000000000024")]
+    public async Task ManualCashEntryPersistsWithoutDocumentProvenance(string categoryIdValue)
     {
+        var categoryId = Guid.Parse(categoryIdValue);
         await using var database = await TestDatabase.CreateAsync();
         var service = database.Services.GetRequiredService<TransactionService>();
 
@@ -31,7 +33,7 @@ public sealed class ManualTransactionTests
             Direction = TransactionDirection.Debit,
             Amount = 250m,
             AccountLabel = " Cash ",
-            CategoryId = FoodCategoryId
+            CategoryId = categoryId
         }, CancellationToken.None);
 
         Assert.NotNull(created);
@@ -40,6 +42,11 @@ public sealed class ManualTransactionTests
         Assert.Equal("Cash", created.AccountLabel);
         Assert.Equal("INR", created.Currency);
         Assert.Equal(250m, created.Amount);
+        Assert.Equal(categoryId, created.CategoryId);
+
+        var detail = await service.GetAsync(created.Id, CancellationToken.None);
+        Assert.NotNull(detail);
+        Assert.Equal(categoryId, detail.CategoryId);
 
         await using var context = await database.CreateContextAsync();
         var stored = await context.Transactions.SingleAsync();
@@ -48,7 +55,7 @@ public sealed class ManualTransactionTests
         Assert.Null(stored.ImportPosition);
         Assert.Null(stored.SourceFormat);
         Assert.Equal(LineExtractionStatus.NotApplicable, stored.LineExtractionStatus);
-        Assert.Equal(FoodCategoryId, stored.CategoryId);
+        Assert.Equal(categoryId, stored.CategoryId);
         Assert.Equal("Lunch with team", stored.Note);
         Assert.Empty(await context.DocumentImports.ToListAsync());
     }

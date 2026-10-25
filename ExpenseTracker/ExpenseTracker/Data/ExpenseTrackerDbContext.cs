@@ -6,6 +6,7 @@ namespace ExpenseTracker.Data;
 public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbContext> options) : DbContext(options)
 {
     private static readonly Guid InvestmentId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private static readonly Guid BillsAndUtilitiesId = Guid.Parse("10000000-0000-0000-0000-000000000022");
 
     private static readonly string ProvenanceConstraint =
         $"(origin = '{nameof(TransactionOrigin.Manual)}' AND document_import_id IS NULL AND import_position IS NULL AND source_format IS NULL) OR " +
@@ -265,6 +266,9 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000018"), Slug = "celebrations", Name = "Celebrations", Kind = CategoryKind.Expense },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000019"), Slug = "personal", Name = "Personal", Kind = CategoryKind.Expense },
         new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000020"), Slug = "clothing", Name = "Clothing", Kind = CategoryKind.Expense, ParentCategoryId = Guid.Parse("10000000-0000-0000-0000-000000000019") },
-        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000021"), Slug = "bank-charges", Name = "Bank Charges", Kind = CategoryKind.Expense }
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000021"), Slug = "bank-charges", Name = "Bank Charges", Kind = CategoryKind.Expense },
+        new() { Id = BillsAndUtilitiesId, Slug = "bills-utilities", Name = "Bills & Utilities", Kind = CategoryKind.Expense },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000023"), Slug = "mobile", Name = "Mobile", Kind = CategoryKind.Expense, ParentCategoryId = BillsAndUtilitiesId },
+        new() { Id = Guid.Parse("10000000-0000-0000-0000-000000000024"), Slug = "internet", Name = "Internet", Kind = CategoryKind.Expense, ParentCategoryId = BillsAndUtilitiesId }
     ];
 }

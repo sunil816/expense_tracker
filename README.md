@@ -9,7 +9,7 @@ The EF Core model contains:
 - `document_imports`: SHA-256 upload hashes and import timestamps for idempotency;
 - `transactions`: normalized INR debit/credit rows, either imported from a document or entered manually;
 - `transaction_lines`: schema for future receipt products, taxes, fees, discounts, and other lines;
-- `categories`: seeded income/expense categories, including the Investment hierarchy.
+- `categories`: seeded income/expense categories, including the Investment and Bills & Utilities hierarchies.
 
 Each transaction records two independent facts. `origin` is `Imported` or `Manual`. `source_format` identifies the parsed document layout (`PaymentExport`, `BankStatement`, `OrderHistory`) and is set only for imported rows. A database check constraint keeps the pair consistent: manual rows carry no import, position, or format, and imported rows carry all three.
 
@@ -24,6 +24,23 @@ dotnet ef database update --project ExpenseTracker/ExpenseTracker/ExpenseTracker
 ```
 
 The application fails at startup when the connection string is absent. In Development, pending EF Core migrations are applied during startup, so an unreachable or invalidly\ authenticated configured database prevents the application from starting. Production does not apply migrations automatically.
+
+## Bills & Utilities categories
+
+The Expense category **Bills & Utilities** has two children:
+
+- **Mobile** (`mobile`): prepaid recharges, postpaid mobile bills, talk-time top-ups, and mobile data packs.
+- **Internet** (`internet`): broadband, fiber, and home Wi-Fi bills.
+
+The parent (`bills-utilities`) can also be assigned directly when the utility service is unclear. Categorize by the service, not just the provider: Airtel or Jio payments could be either Mobile or Internet. Standalone streaming subscriptions do not belong under Internet.
+
+Apply the EF Core migration using the database update command above; production does not apply it automatically. The migration adds only these three categories and does not recategorize existing transactions. Reload an already-open browser page after deployment because the category list is cached for the page's lifetime.
+
+Use the existing create, edit, or inline category selector to assign these categories. Inline changes can offer to update transactions with the same description after confirmation; this can overwrite their existing category assignments, so review the matching transactions before accepting.
+
+Category selectors remain flat: within each income/expense kind, all parents precede all children, with each group ordered alphabetically rather than grouped into a tree. Mobile and Internet therefore need not appear together or beside Bills & Utilities. Filters match only the assigned category, and reports show Mobile and Internet separately; selecting or reporting Bills & Utilities does not automatically include its children.
+
+Prefer retaining these additive categories if reverting application code. Before rolling back their database migration, back up and explicitly reassign affected transactions; deleting an assigned category can set its transactions' category to null.
 
 ## Document extraction prototype
 

@@ -215,6 +215,29 @@ namespace ExpenseTracker.Migrations
                             Kind = "Expense",
                             Name = "Bank Charges",
                             Slug = "bank-charges"
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000022"),
+                            Kind = "Expense",
+                            Name = "Bills & Utilities",
+                            Slug = "bills-utilities"
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000023"),
+                            Kind = "Expense",
+                            Name = "Mobile",
+                            ParentCategoryId = new Guid("10000000-0000-0000-0000-000000000022"),
+                            Slug = "mobile"
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000024"),
+                            Kind = "Expense",
+                            Name = "Internet",
+                            ParentCategoryId = new Guid("10000000-0000-0000-0000-000000000022"),
+                            Slug = "internet"
                         });
                 });
 
