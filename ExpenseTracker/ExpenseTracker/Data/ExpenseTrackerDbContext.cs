@@ -19,6 +19,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
     public DbSet<TransactionTag> TransactionTags => Set<TransactionTag>();
     public DbSet<TransactionLineTag> TransactionLineTags => Set<TransactionLineTag>();
     public DbSet<TransactionDuplicateFlag> TransactionDuplicateFlags => Set<TransactionDuplicateFlag>();
+    public DbSet<TransactionSuggestion> TransactionSuggestions => Set<TransactionSuggestion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,6 +31,7 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
         ConfigureTransactionTag(modelBuilder.Entity<TransactionTag>());
         ConfigureTransactionLineTag(modelBuilder.Entity<TransactionLineTag>());
         ConfigureTransactionDuplicateFlag(modelBuilder.Entity<TransactionDuplicateFlag>());
+        ConfigureTransactionSuggestion(modelBuilder.Entity<TransactionSuggestion>());
     }
 
     private static void ConfigureDocumentImport(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<DocumentImport> entity)
@@ -131,6 +133,35 @@ public sealed class ExpenseTrackerDbContext(DbContextOptions<ExpenseTrackerDbCon
             .HasDatabaseName("ix_transaction_duplicate_flags_transaction_id");
         entity.HasIndex(flag => flag.MatchedTransactionId)
             .HasDatabaseName("ix_transaction_duplicate_flags_matched_transaction_id");
+    }
+
+    private static void ConfigureTransactionSuggestion(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TransactionSuggestion> entity)
+    {
+        entity.ToTable("transaction_suggestions", table =>
+            table.HasCheckConstraint(
+                "ck_transaction_suggestions_decision_timestamp",
+                $"(state = '{nameof(SuggestionState.Suggested)}' AND decided_at IS NULL) OR (state <> '{nameof(SuggestionState.Suggested)}' AND decided_at IS NOT NULL)"));
+        entity.HasKey(suggestion => suggestion.Id);
+        entity.Property(suggestion => suggestion.Id).HasColumnName("id");
+        entity.Property(suggestion => suggestion.TransactionId).HasColumnName("transaction_id");
+        entity.Property(suggestion => suggestion.Field).HasColumnName("field").HasConversion<string>().HasMaxLength(20).IsRequired();
+        entity.Property(suggestion => suggestion.PreviousKind).HasColumnName("previous_kind").HasConversion<string>().HasMaxLength(10);
+        entity.Property(suggestion => suggestion.SuggestedKind).HasColumnName("suggested_kind").HasConversion<string>().HasMaxLength(10);
+        entity.Property(suggestion => suggestion.ResolvedKind).HasColumnName("resolved_kind").HasConversion<string>().HasMaxLength(10);
+        entity.Property(suggestion => suggestion.State).HasColumnName("state").HasConversion<string>().HasMaxLength(20).IsRequired();
+        entity.Property(suggestion => suggestion.Source).HasColumnName("source").HasMaxLength(100).IsRequired();
+        entity.Property(suggestion => suggestion.Reason).HasColumnName("reason").HasMaxLength(500).IsRequired();
+        entity.Property(suggestion => suggestion.SuggestedAt).HasColumnName("suggested_at").HasColumnType("timestamp with time zone");
+        entity.Property(suggestion => suggestion.DecidedAt).HasColumnName("decided_at").HasColumnType("timestamp with time zone");
+        entity.HasOne(suggestion => suggestion.Transaction)
+            .WithMany(transaction => transaction.Suggestions)
+            .HasForeignKey(suggestion => suggestion.TransactionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        entity.HasIndex(suggestion => new { suggestion.TransactionId, suggestion.Field })
+            .IsUnique()
+            .HasDatabaseName("ix_transaction_suggestions_transaction_field");
+        entity.HasIndex(suggestion => suggestion.State)
+            .HasDatabaseName("ix_transaction_suggestions_state");
     }
 
     private static void ConfigureTransactionLine(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TransactionLine> entity)
